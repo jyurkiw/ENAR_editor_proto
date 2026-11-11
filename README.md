@@ -12,6 +12,29 @@ cargo install tauri-cli --version "^2" --locked
 cargo tauri dev
 ```
 
+`cargo tauri dev` is for development only: its executable (`target\debug\enigma-editor.exe`)
+loads the UI from trunk's dev server on localhost:1420, so it shows nothing when run on its own.
+
+## Build a standalone app
+
+```powershell
+.\build-release.ps1            # the .exe and an installer
+.\build-release.ps1 -NoBundle  # just the .exe (faster)
+```
+
+This runs `cargo tauri build`, which compiles the UI with `trunk build --release` and embeds
+it in a release executable. The script copies the results to `release\`:
+
+- `release\Enigma Narrative Editor.exe`: a single file. Double-click it, pin it, or copy it anywhere.
+- `release\Enigma Narrative Editor_<version>_x64-setup.exe`: an NSIS installer with a Start menu
+  entry and an uninstaller.
+
+At run time the app needs WebView2 (part of Windows 10/11) and, for validation, `uv`. A
+double-clicked app looks for `uv` on PATH, then in `%USERPROFILE%\.local\bin`,
+`%USERPROFILE%\.cargo\bin` and `%LOCALAPPDATA%\Programs\uv`. Its settings and validation venv live
+in `%APPDATA%\com.enigmanarrative.editor` and `%LOCALAPPDATA%\com.enigmanarrative.editor`, shared
+with dev builds.
+
 ## How it works
 
 - **Project**: any folder. `enigma-project.toml` at its root records the schemas folder and

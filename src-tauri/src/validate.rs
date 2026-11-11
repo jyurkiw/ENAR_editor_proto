@@ -53,8 +53,33 @@ enum Outcome {
     NotRun(String),
 }
 
+/// The uv executable. A double-clicked app may not have the terminal's PATH, so after
+/// PATH this tries uv's standard install folders.
+fn uv_exe() -> PathBuf {
+    let exe = if cfg!(windows) { "uv.exe" } else { "uv" };
+    let on_path = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).map(|d| d.join(exe)).any(|f| f.is_file()))
+        .unwrap_or(false);
+    if on_path {
+        return PathBuf::from("uv");
+    }
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(d) = std::env::var_os("UV_INSTALL_DIR") {
+        dirs.push(PathBuf::from(d));
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let home = PathBuf::from(home);
+        dirs.push(home.join(".local").join("bin"));
+        dirs.push(home.join(".cargo").join("bin"));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        dirs.push(PathBuf::from(local).join("Programs").join("uv"));
+    }
+    dirs.into_iter().map(|d| d.join(exe)).find(|f| f.is_file()).unwrap_or_else(|| PathBuf::from("uv"))
+}
+
 fn run_lxml(v: &Validator, compiler: &str, file: &Path, xsd: &Path) -> Outcome {
-    let mut cmd = Command::new("uv");
+    let mut cmd = Command::new(uv_exe());
     cmd.args(["run", "--quiet", "--project", compiler, "python"])
         .arg(&v.script)
         .arg(file)
