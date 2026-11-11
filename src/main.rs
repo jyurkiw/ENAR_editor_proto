@@ -9,6 +9,7 @@ mod apply;
 mod chapter_form;
 mod cover_form;
 mod dialogs;
+mod reference_form;
 mod files;
 mod state;
 mod structure;

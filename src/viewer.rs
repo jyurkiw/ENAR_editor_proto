@@ -9,7 +9,12 @@ use shared::Validation;
 
 use shared::chapter::{self, ChapterEdit};
 
+use shared::reference::{self as refs, RefEdit};
+use shared::Change;
+
+use crate::apply::{apply, ref_key};
 use crate::chapter_form::ChapterForm;
+use crate::reference_form::ReferenceForm;
 use crate::cover_form::{apply_model, CoverForm};
 use crate::state::{ctx, Dialog, DocData, DocTab, Mode};
 
@@ -19,6 +24,8 @@ enum FormKind {
     Cover,
     /// A top-level chapter, by its name in the file.
     Chapter(String),
+    /// The reference block; `Some(key)` when one of its entries was picked in the tree.
+    Reference(Option<String>),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
@@ -29,7 +36,17 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
         "chapter" if top => {
             shared::edit::start_tag(&d.source, n.start)?.value("name").map(FormKind::Chapter)
         }
-        _ => None,
+        "reference" if top => Some(FormKind::Reference(None)),
+        _ => {
+            // An entry inside <reference>: the reference editor, at that entry's card.
+            let parent = d.parents.get(idx).copied().flatten()?;
+            let in_ref = d.nodes[parent].tag == "reference" && d.nodes[0].children.contains(&parent);
+            if !in_ref {
+                return None;
+            }
+            let id = shared::edit::start_tag(&d.source, n.start)?.value("id").unwrap_or_default();
+            Some(FormKind::Reference(Some(ref_key(&n.tag, &id))))
+        }
     }
 }
 
@@ -75,6 +92,20 @@ pub fn Viewer() -> impl IntoView {
 fn TabView(tab: DocTab) -> impl IntoView {
     let selected = tab.selected;
     let kind = Memo::new(move |_| form_kind(&tab.doc(), selected.get()));
+    // Which form is mounted: the reference editor stays mounted whichever of its
+    // entries is picked (and across applies), so focus and scroll survive.
+    let mounted = Memo::new(move |_| {
+        kind.get().map(|k| match k {
+            FormKind::Reference(_) => FormKind::Reference(None),
+            other => other,
+        })
+    });
+    // Picking an entry in the tree opens its card.
+    Effect::new(move |_| {
+        if let Some(FormKind::Reference(Some(k))) = kind.get() {
+            tab.ref_focus.set(Some(k));
+        }
+    });
     let form_tag = move || kind.with(|k| k.is_some());
     let mode = tab.mode;
 
@@ -123,7 +154,8 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     );
                 }
             }
-            None => {}
+            // Reference cards apply one at a time, so Source shows the file as written.
+            Some(FormKind::Reference(_)) | None => {}
         }
         view! { <pre class="code">{highlighted(&reindent(&d.source, n.start, n.end))}</pre> }.into_any()
     };
@@ -166,6 +198,13 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     <button on:click=add_cover disabled=move || tab.applying.get()>"Add a cover"</button>
                 </div>
             </Show>
+            <Show when=move || selected.get() == 0 && !refs::has_block(&tab.doc().nodes)>
+                <div class="notice">
+                    "This supplement has no <reference> block for monsters, spells, items, images, nouns and data."
+                    <button disabled=move || tab.applying.get()
+                        on:click=move |_| apply(tab, Change::Reference { edit: RefEdit::CreateBlock })>"Create <reference>"</button>
+                </div>
+            </Show>
             <Show when=move || selected.get() == 0>
                 <div class="notice info">
                     {move || format!("{} chapter(s).", chapter::chapter_nodes(&tab.doc().nodes).len())}
@@ -173,9 +212,10 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 </div>
             </Show>
             <div class="viewer-body">
-                {move || match (kind.get(), mode.get()) {
+                {move || match (mounted.get(), mode.get()) {
                     (Some(FormKind::Cover), Mode::Form) => view! { <CoverForm tab/> }.into_any(),
                     (Some(FormKind::Chapter(name)), Mode::Form) => view! { <ChapterForm tab name/> }.into_any(),
+                    (Some(FormKind::Reference(_)), Mode::Form) => view! { <ReferenceForm tab/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

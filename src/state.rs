@@ -7,6 +7,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use shared::chapter::ChapterModel;
 use shared::cover::CoverModel;
+use shared::reference::RefEntry;
+use shared::Change;
 use shared::{AppError, FsEntry, OpenProject, OpenedDoc, Problem, ProjectInfo};
 
 use crate::api;
@@ -100,8 +102,18 @@ pub struct DocTab {
     pub cover_draft: RwSignal<Option<CoverModel>>,
     /// Chapter forms' unapplied edits, by the chapter's name in the file.
     pub chapter_drafts: RwSignal<HashMap<String, ChapterModel>>,
+    /// Reference cards: unapplied edits by card key ("tag:id", or "new:N" for a card
+    /// not in the file yet), new cards in the order added, open cards, cards whose last
+    /// apply was refused, and the card to scroll to.
+    pub ref_drafts: RwSignal<HashMap<String, RefEntry>>,
+    pub ref_new: RwSignal<Vec<String>>,
+    pub ref_open: RwSignal<HashSet<String>>,
+    pub ref_failed: RwSignal<HashSet<String>>,
+    pub ref_focus: RwSignal<Option<String>>,
     /// An apply is running.
     pub applying: RwSignal<bool>,
+    /// Changes waiting for the running apply to finish.
+    pub queue: StoredValue<Vec<(Change, Option<String>)>>,
     /// The Problems panel: the last refused apply's errors, and the text that was checked.
     pub problems: RwSignal<Vec<Problem>>,
     pub problem_source: RwSignal<String>,
@@ -118,7 +130,13 @@ impl DocTab {
             mode: RwSignal::new(Mode::Form),
             cover_draft: RwSignal::new(None),
             chapter_drafts: RwSignal::new(HashMap::new()),
+            ref_drafts: RwSignal::new(HashMap::new()),
+            ref_new: RwSignal::new(Vec::new()),
+            ref_open: RwSignal::new(HashSet::new()),
+            ref_failed: RwSignal::new(HashSet::new()),
+            ref_focus: RwSignal::new(None),
             applying: RwSignal::new(false),
+            queue: StoredValue::new(Vec::new()),
             problems: RwSignal::new(Vec::new()),
             problem_source: RwSignal::new(String::new()),
             problems_open: RwSignal::new(false),

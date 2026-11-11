@@ -255,3 +255,56 @@ button.small { font-size: 11px; padding: 1px 8px; }
 .add-row input, .add-row select { font: inherit; color: inherit; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; min-width: 0; }
 .add-row input { flex: 1; }
 .add-row input.invalid { border-color: var(--bad); background: var(--bad-bg); }
+
+/* Reference editor */
+.ref-editor { padding: 12px 20px 40px; max-width: 980px; }
+.ref-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 6px 0 10px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.add-wrap { position: relative; }
+.add-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 420px; }
+.add-menu button { display: flex; gap: 10px; align-items: baseline; }
+.menu-desc { color: var(--muted); font-size: 12px; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { font-size: 12px; padding: 1px 10px; border-radius: 12px; }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filter-note { margin: 0 0 8px; }
+.ref-list { display: flex; flex-direction: column; gap: 6px; }
+
+.ref-card { border: 1px solid var(--border); border-radius: 6px; background: var(--panel); position: relative; }
+.ref-card.open { box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.ref-card.dirty { border-color: var(--warn); }
+.ref-card.failed { border-color: var(--bad); }
+.ref-card.dragging { opacity: .45; }
+.ref-card.drop-before::before, .ref-card.drop-after::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 3px; background: var(--accent); border-radius: 2px;
+}
+.ref-card.drop-before::before { top: -5px; }
+.ref-card.drop-after::after { bottom: -5px; }
+.ref-head { display: flex; align-items: center; gap: 10px; padding: 6px 10px; cursor: pointer; user-select: none; min-width: 0; }
+.ref-head:hover { background: var(--panel-2); border-radius: 6px; }
+.grip { cursor: grab; color: var(--muted); font-size: 14px; }
+.ref-kind { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px; background: var(--panel-2); color: var(--muted); min-width: 58px; text-align: center; }
+.kind-monster { color: var(--accent); }
+.kind-spell { color: var(--t-special); }
+.kind-item { color: var(--t-attr); }
+.kind-noun { color: var(--t-value); }
+.kind-image { color: #3d7ea6; }
+.kind-data { color: var(--muted); }
+.ref-id { flex: none; font-size: 12px; }
+.ref-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.uses { flex: none; font-size: 11px; color: var(--muted); }
+.uses.unused { font-style: italic; opacity: .7; }
+.state-badge { flex: none; font-size: 10px; text-transform: uppercase; color: var(--warn); }
+.state-badge.bad { color: var(--bad); }
+.ref-head .twist { color: var(--muted); width: 12px; }
+.ref-body { padding: 4px 14px 10px 36px; border-top: 1px solid var(--panel-2); }
+.subgroup { border-left: 3px solid var(--panel-2); padding-left: 10px; margin: 8px 0; }
+.subgroup-title { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.ref-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.choose-row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.choose-row input { font: inherit; color: inherit; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; flex: 1; min-width: 0; }
+.field textarea { font: inherit; color: inherit; background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; resize: vertical; }
+.image-fields { display: flex; gap: 16px; align-items: flex-start; }
+.image-form { flex: 1; min-width: 0; }
+.thumb { margin: 8px 0 0; width: 160px; flex: none; }
+.thumb img { width: 100%; max-height: 200px; object-fit: contain; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; }
+.thumb figcaption { font-size: 11px; color: var(--muted); text-align: center; }

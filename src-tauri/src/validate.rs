@@ -416,4 +416,69 @@ mod real {
         println!("{problems:#?}");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
     }
+
+    #[test]
+    #[ignore]
+    fn apply_reference_round_trip() {
+        use shared::reference::{self, RefEdit, RefEntry};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let file = t.path().join("adventure.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/adventure.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, edit: RefEdit| {
+            apply_edit(&path_str(&file), expected, &p, &v, |s| reference::plan(s, &edit)).unwrap()
+        };
+        let entries = |s: &str| {
+            let nodes = xmldoc::parse(s).unwrap().nodes;
+            reference::read(s, &nodes).into_iter().map(|(_, e)| e).collect::<Vec<_>>()
+        };
+        let usage = reference::usage(&src);
+        // The most-used entry of each kind gets renamed.
+        let mut cur = src.clone();
+        for kind in ["monster", "spell", "item", "image", "data"] {
+            let e = entries(&cur)
+                .into_iter()
+                .filter(|e| e.tag == kind)
+                .max_by_key(|e| usage.get(&(kind.to_string(), e.id())).copied().unwrap_or(0))
+                .unwrap();
+            let old = e.id();
+            let uses = reference::usage(&cur).get(&(kind.to_string(), old.clone())).copied().unwrap_or(0);
+            let mut n = e.clone();
+            n.set("id", format!("{old}-renamed"));
+            let r = run(&cur, RefEdit::Update { tag: kind.into(), id: old.clone(), entry: n });
+            let ApplyResult::Saved { doc } = r else { panic!("rename of {kind} {old} refused: {r:?}") };
+            assert_eq!(reference::usage(&doc.source).get(&(kind.to_string(), format!("{old}-renamed"))).copied().unwrap_or(0), uses);
+            println!("renamed {kind} {old} ({uses} uses)");
+            cur = doc.source;
+        }
+        // Move the first entry to the end.
+        let first = entries(&cur)[0].clone();
+        let r = run(&cur, RefEdit::Move { tag: first.tag.clone(), id: first.id(), before: None });
+        let ApplyResult::Saved { doc } = r else { panic!("move refused: {r:?}") };
+        assert_eq!(entries(&doc.source).last().unwrap().id(), first.id());
+        cur = doc.source;
+        // Add one of each kind.
+        for (tag, attrs) in [
+            ("monster", vec![("id", "new-mon"), ("name", "Wolf"), ("cr", "1/4"), ("src", "SRD")]),
+            ("spell", vec![("id", "new-spell"), ("name", "Light"), ("src", "SRD")]),
+            ("item", vec![("id", "new-item"), ("name", "Rope")]),
+            ("noun", vec![("id", "new-noun"), ("name", "Old Mill"), ("kind", "place")]),
+            ("image", vec![("id", "new-img"), ("src", "x.png"), ("height", "3in"), ("span", "both")]),
+            ("data", vec![("id", "new-data"), ("value", "7")]),
+        ] {
+            let mut e = RefEntry::new(tag);
+            for (k, v) in attrs {
+                e.set(k, v.into());
+            }
+            let r = run(&cur, RefEdit::Add { entry: e });
+            let ApplyResult::Saved { doc } = r else { panic!("add {tag} refused: {r:?}") };
+            cur = doc.source;
+        }
+        // A used entry can't be deleted; an unused one can.
+        let r = run(&cur, RefEdit::Delete { tag: "spell".into(), id: entries(&cur).iter().find(|e| e.tag == "spell" && e.id().ends_with("-renamed")).unwrap().id() });
+        assert!(matches!(r, ApplyResult::Invalid { .. }), "deleting a used spell should be refused");
+        let r = run(&cur, RefEdit::Delete { tag: "noun".into(), id: "new-noun".into() });
+        assert!(matches!(r, ApplyResult::Saved { .. }));
+    }
 }

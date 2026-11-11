@@ -7,6 +7,7 @@ pub mod chapter;
 pub mod cover;
 pub mod display;
 pub mod edit;
+pub mod reference;
 pub mod values;
 pub mod xml;
 
@@ -227,6 +228,7 @@ pub enum ApplyResult {
 pub enum Change {
     Cover { model: cover::CoverModel },
     Chapter { edit: chapter::ChapterEdit },
+    Reference { edit: reference::RefEdit },
 }
 
 impl Change {
@@ -234,6 +236,7 @@ impl Change {
         match self {
             Change::Cover { model } => cover::plan(source, model),
             Change::Chapter { edit } => chapter::plan(source, edit),
+            Change::Reference { edit } => reference::plan(source, edit),
         }
     }
 }

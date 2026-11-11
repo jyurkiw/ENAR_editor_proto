@@ -289,6 +289,39 @@ pub fn snippet(text: &str, n: usize) -> String {
     format!("{}…", cut.trim_end_matches([' ', ',', ';', ':', '.']))
 }
 
+/// Moves an element before `before`, or after `last` (the last sibling) when `before` is
+/// None. An element alone on its line moves with the whole line (indent, trailing
+/// comment); comments on lines of their own stay where they are.
+pub fn move_element(
+    source: &str,
+    node: &StructNode,
+    before: Option<&StructNode>,
+    last: Option<&StructNode>,
+) -> Result<Vec<Splice>, String> {
+    let own_line = |n: &StructNode| blank_before(source, n.start) && line_end_after(source, n.end).is_some();
+    let (from, to) = if own_line(node) {
+        (line_start(source, node.start), line_end_after(source, node.end).unwrap())
+    } else {
+        (node.start, node.end)
+    };
+    let mut text = source[from..to].to_string();
+    let lined = own_line(node);
+    if lined && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    let at = match (before, last) {
+        (Some(b), _) if lined && blank_before(source, b.start) => line_start(source, b.start),
+        (Some(b), _) => b.start,
+        (None, Some(l)) if lined => line_end_after(source, l.end).unwrap_or(l.end),
+        (None, Some(l)) => l.end,
+        (None, None) => return Err("nowhere to move it".into()),
+    };
+    if at > from && at < to {
+        return Err("can't move an element into itself".into());
+    }
+    Ok(vec![Splice { start: from, end: to, text: String::new() }, Splice::insert(at, text)])
+}
+
 /// Where a new child goes.
 pub enum Anchor<'a> {
     /// After this sibling (and its same-line comment).
