@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod chapter;
 pub mod cover;
 pub mod display;
 pub mod edit;
@@ -217,4 +218,22 @@ pub enum ApplyResult {
     Saved { doc: OpenedDoc },
     /// The edited file didn't validate, so nothing was written.
     Invalid { problems: Vec<Problem> },
+}
+
+/// An edit the form asks the backend to apply. The backend plans it again against the
+/// file on disk (the frontend plans it too, for the live Source view).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "target")]
+pub enum Change {
+    Cover { model: cover::CoverModel },
+    Chapter { edit: chapter::ChapterEdit },
+}
+
+impl Change {
+    pub fn plan(&self, source: &str) -> Result<String, String> {
+        match self {
+            Change::Cover { model } => cover::plan(source, model),
+            Change::Chapter { edit } => chapter::plan(source, edit),
+        }
+    }
 }

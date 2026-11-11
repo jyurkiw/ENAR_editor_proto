@@ -7,12 +7,46 @@ use shared::display::{reindent, tokenize};
 use shared::xml::parse;
 use shared::Validation;
 
-use crate::cover_form::{apply_model, CoverForm};
-use crate::state::{ctx, DocTab, Mode};
+use shared::chapter::{self, ChapterEdit};
 
-/// Tags with an edit form.
-fn has_form(tag: &str) -> bool {
-    tag == "cover"
+use crate::chapter_form::ChapterForm;
+use crate::cover_form::{apply_model, CoverForm};
+use crate::state::{ctx, Dialog, DocData, DocTab, Mode};
+
+/// The edit form for an element, if it has one.
+#[derive(Clone, PartialEq)]
+enum FormKind {
+    Cover,
+    /// A top-level chapter, by its name in the file.
+    Chapter(String),
+}
+
+fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
+    let n = d.nodes.get(idx)?;
+    let top = d.nodes[0].children.contains(&idx);
+    match n.tag.as_str() {
+        "cover" if top => Some(FormKind::Cover),
+        "chapter" if top => {
+            shared::edit::start_tag(&d.source, n.start)?.value("name").map(FormKind::Chapter)
+        }
+        _ => None,
+    }
+}
+
+/// The re-indented text of the element `find` locates in `text`, highlighted.
+fn planned_view(planned: Result<String, String>, find: impl Fn(&str, &[shared::StructNode]) -> Option<usize>, gone: &'static str) -> AnyView {
+    let planned = planned.and_then(|t| parse(&t).map(|p| (t, p.nodes)).map_err(|e| e.message));
+    match planned {
+        Ok((text, nodes)) => match find(&text, &nodes) {
+            Some(i) => view! {
+                <div class="source-note">"Showing the text after Apply (not yet written)."</div>
+                <pre class="code">{highlighted(&reindent(&text, nodes[i].start, nodes[i].end))}</pre>
+            }
+            .into_any(),
+            None => view! { <div class="source-note">{gone}</div> }.into_any(),
+        },
+        Err(e) => view! { <div class="source-note bad">{format!("Can't plan the edit: {e}")}</div> }.into_any(),
+    }
 }
 
 fn highlighted(text: &str) -> impl IntoView {
@@ -40,11 +74,8 @@ pub fn Viewer() -> impl IntoView {
 #[component]
 fn TabView(tab: DocTab) -> impl IntoView {
     let selected = tab.selected;
-    let sel_tag = Memo::new(move |_| {
-        let d = tab.doc();
-        d.nodes.get(selected.get()).map(|n| n.tag.clone()).unwrap_or_default()
-    });
-    let form_tag = move || has_form(&sel_tag.get());
+    let kind = Memo::new(move |_| form_kind(&tab.doc(), selected.get()));
+    let form_tag = move || kind.with(|k| k.is_some());
     let mode = tab.mode;
 
     let crumbs = move || {
@@ -72,21 +103,27 @@ fn TabView(tab: DocTab) -> impl IntoView {
     let source = move || {
         let d = tab.doc();
         let Some(n) = d.nodes.get(selected.get()) else { return ().into_any() };
-        if n.tag == "cover" {
-            if let Some(draft) = tab.cover_draft.get() {
-                let planned = cover::plan(&d.source, &draft).and_then(|t| parse(&t).map(|p| (t, p.nodes)).map_err(|e| e.message));
-                return match planned {
-                    Ok((text, nodes)) => match cover::cover_node(&nodes) {
-                        Some(ci) => view! {
-                            <div class="source-note">"Showing the text after Apply (not yet written)."</div>
-                            <pre class="code">{highlighted(&reindent(&text, nodes[ci].start, nodes[ci].end))}</pre>
-                        }
-                        .into_any(),
-                        None => view! { <div class="source-note">"Apply removes the cover."</div> }.into_any(),
-                    },
-                    Err(e) => view! { <div class="source-note bad">{format!("Can't plan the edit: {e}")}</div> }.into_any(),
-                };
+        match form_kind(&d, selected.get()) {
+            Some(FormKind::Cover) => {
+                if let Some(draft) = tab.cover_draft.get() {
+                    return planned_view(
+                        cover::plan(&d.source, &draft),
+                        |_, nodes| cover::cover_node(nodes),
+                        "Apply removes the cover.",
+                    );
+                }
             }
+            Some(FormKind::Chapter(name)) => {
+                if let Some(draft) = tab.chapter_drafts.with(|m| m.get(&name).cloned()) {
+                    let new_name = draft.name.clone();
+                    return planned_view(
+                        chapter::plan(&d.source, &ChapterEdit::Update { name, model: draft }),
+                        move |t, nodes| chapter::find_chapter(t, nodes, &new_name),
+                        "Apply removes the chapter.",
+                    );
+                }
+            }
+            None => {}
         }
         view! { <pre class="code">{highlighted(&reindent(&d.source, n.start, n.end))}</pre> }.into_any()
     };
@@ -97,6 +134,8 @@ fn TabView(tab: DocTab) -> impl IntoView {
         selected.get() == 0 && cover::cover_node(&d.nodes).is_none()
     };
     let add_cover = move |_| apply_model(tab, CoverModel { present: true, ..Default::default() });
+    let app = ctx();
+    let add_chapter = move |_| app.dialog.set(Some(Dialog::NewChapter { tab: tab.id }));
 
     let status = move || {
         let d = tab.doc();
@@ -127,11 +166,17 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     <button on:click=add_cover disabled=move || tab.applying.get()>"Add a cover"</button>
                 </div>
             </Show>
+            <Show when=move || selected.get() == 0>
+                <div class="notice info">
+                    {move || format!("{} chapter(s).", chapter::chapter_nodes(&tab.doc().nodes).len())}
+                    <button on:click=add_chapter disabled=move || tab.applying.get()>"Add chapter…"</button>
+                </div>
+            </Show>
             <div class="viewer-body">
-                {move || if form_tag() && mode.get() == Mode::Form {
-                    view! { <CoverForm tab/> }.into_any()
-                } else {
-                    source().into_any()
+                {move || match (kind.get(), mode.get()) {
+                    (Some(FormKind::Cover), Mode::Form) => view! { <CoverForm tab/> }.into_any(),
+                    (Some(FormKind::Chapter(name)), Mode::Form) => view! { <ChapterForm tab name/> }.into_any(),
+                    _ => source().into_any(),
                 }}
             </div>
             <ProblemsPanel tab/>

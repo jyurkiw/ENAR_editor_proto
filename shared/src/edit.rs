@@ -163,7 +163,13 @@ pub fn text_of(source: &str, node: &StructNode) -> String {
 
 /// Sets, changes or removes one attribute. None when nothing changes.
 pub fn set_attr(source: &str, node: &StructNode, name: &str, value: Option<&str>) -> Option<Splice> {
-    let tag = start_tag(source, node.start)?;
+    set_attr_at(source, node.start, name, value)
+}
+
+/// [`set_attr`] for the element whose start tag begins at `start` (for elements the
+/// tree doesn't hold, like inline tags inside a paragraph).
+pub fn set_attr_at(source: &str, start: usize, name: &str, value: Option<&str>) -> Option<Splice> {
+    let tag = start_tag(source, start)?;
     match (tag.get(name), value) {
         (Some(a), Some(v)) if a.value == v => None,
         (Some(a), Some(v)) => Some(Splice {
@@ -216,7 +222,7 @@ fn blank_before(source: &str, pos: usize) -> bool {
 
 /// The end of an element's line: past a comment that follows it on the same line and
 /// the newline, when the rest of the line is only that. None when other markup follows.
-fn line_end_after(source: &str, end: usize) -> Option<usize> {
+pub fn line_end_after(source: &str, end: usize) -> Option<usize> {
     let rest = &source[end..];
     let ws = rest.len() - rest.trim_start_matches([' ', '\t']).len();
     let mut p = end + ws;
@@ -250,6 +256,37 @@ pub fn remove_element(source: &str, node: &StructNode) -> Splice {
         }
     }
     Splice { start: node.start, end: node.end, text: String::new() }
+}
+
+/// An element's text with its markup stripped and whitespace squashed.
+pub fn plain_text(source: &str, node: &StructNode) -> String {
+    let mut reader = quick_xml::Reader::from_str(&source[node.start..node.end]);
+    let mut out = String::new();
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Text(t)) => {
+                out.push_str(&t.unescape().map(|c| c.into_owned()).unwrap_or_default());
+                out.push(' ');
+            }
+            Ok(quick_xml::events::Event::CData(t)) => out.push_str(&String::from_utf8_lossy(&t)),
+            Ok(quick_xml::events::Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Cuts text to about `n` characters at a word boundary, with an ellipsis.
+pub fn snippet(text: &str, n: usize) -> String {
+    if text.chars().count() <= n {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(n).collect();
+    let cut = match cut.rfind(' ') {
+        Some(i) if i > n / 2 => &cut[..i],
+        _ => &cut[..],
+    };
+    format!("{}…", cut.trim_end_matches([' ', ',', ';', ':', '.']))
 }
 
 /// Where a new child goes.

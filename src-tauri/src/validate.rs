@@ -371,4 +371,49 @@ mod real {
         // A stale `expected` is refused.
         assert!(apply_edit(&path_str(&file), &src, &p, &v, |s| Ok(s.to_string())).is_err());
     }
+
+    #[test]
+    #[ignore]
+    fn apply_chapter_round_trip() {
+        use shared::chapter::{self, ChapterEdit, ChildItem};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let file = t.path().join("adventure.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/adventure.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, edit: ChapterEdit| {
+            apply_edit(&path_str(&file), expected, &p, &v, |s| chapter::plan(s, &edit)).unwrap()
+        };
+        let model = |s: &str, name: &str| {
+            let nodes = xmldoc::parse(s).unwrap().nodes;
+            chapter::read(s, &nodes, chapter::find_chapter(s, &nodes, name).unwrap())
+        };
+
+        // Rename (with its references), reorder, and add one of each child kind.
+        let refs = chapter::name_refs(&src, "hillsfort").len();
+        println!("hillsfort has {refs} references");
+        let mut m = model(&src, "hillsfort");
+        m.name = "hillsfort-town".into();
+        m.children.swap(1, 2);
+        for (tag, key) in [("section", "new-sec"), ("sidebar", "new-side"), ("table", "new-table"), ("pageEnd", "")] {
+            m.children.push(ChildItem { tag: tag.into(), key: key.into(), new_title: "New".into(), ..Default::default() });
+        }
+        let r = run(&src, ChapterEdit::Update { name: "hillsfort".into(), model: m });
+        let ApplyResult::Saved { doc } = r else { panic!("rename/reorder/add refused: {r:?}") };
+        assert_eq!(chapter::name_refs(&doc.source, "hillsfort-town").len(), refs);
+
+        // Add a chapter, then delete it.
+        let r = run(&doc.source, ChapterEdit::Add { name: "app-maps".into(), title: "Maps".into(), kind: "appendix".into() });
+        let ApplyResult::Saved { doc } = r else { panic!("add refused: {r:?}") };
+        let r = run(&doc.source, ChapterEdit::Delete { name: "app-maps".into() });
+        let ApplyResult::Saved { doc } = r else { panic!("delete refused: {r:?}") };
+
+        // Deleting a chapter something still points at is refused, and nothing changes.
+        let before = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(before, doc.source);
+        let r = run(&before, ChapterEdit::Delete { name: "app-monsters".into() });
+        let ApplyResult::Invalid { problems } = r else { panic!("expected refusal") };
+        println!("{problems:#?}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    }
 }

@@ -7,11 +7,12 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use shared::cover::{self, CoverImage, CoverModel};
+use shared::Change;
 use shared::values::{css_color, image_choices, is_length, length_fraction, ImageChoice, COLORS};
-use shared::ApplyResult;
 
 use crate::api;
-use crate::state::{ctx, DocTab};
+use crate::apply::apply;
+use crate::state::DocTab;
 
 /// US Letter, which dndbook uses.
 const PAGE_W: f64 = 8.5;
@@ -39,24 +40,7 @@ impl Form {
 
 /// Applies a cover model to the tab's file. Shared by Apply, Remove cover and Add cover.
 pub fn apply_model(tab: DocTab, model: CoverModel) {
-    let app = ctx();
-    let data = tab.doc_untracked();
-    tab.applying.set(true);
-    spawn_local(async move {
-        match api::apply_cover(&data.path, &data.source, &model).await {
-            Ok(ApplyResult::Saved { doc }) => {
-                tab.cover_draft.set(None);
-                tab.clear_problems();
-                tab.replace_doc(doc, model.present.then_some("cover"));
-            }
-            Ok(ApplyResult::Invalid { problems }) => {
-                let checked = cover::plan(&data.source, &model).unwrap_or_default();
-                tab.show_problems(problems, checked);
-            }
-            Err(e) => app.show_error(e),
-        }
-        tab.applying.set(false);
-    });
+    apply(tab, Change::Cover { model });
 }
 
 /// A length field's problem, if any.
@@ -245,7 +229,7 @@ fn CoverArt(form: Form, choices: Memo<Vec<ImageChoice>>) -> impl IntoView {
                         form.update(|m| img_mut(m).image_ref = v);
                     }>{options}</select>
                     {move || choices.with(|c| c.is_empty()).then(|| view! {
-                        <span class="hint bad">"This supplement has no <image> with an id and a file yet. Add one to <reference>."</span>
+                        <span class="hint bad">"This supplement's <reference> has no <image> yet. Cover art must name one there."</span>
                     })}
                 </label>
                 <div class="field-row">
@@ -285,7 +269,10 @@ pub fn CoverForm(tab: DocTab) -> impl IntoView {
         cover::read_nodes(&d.source, &d.nodes)
     });
     let form = Form { tab, base };
-    let choices = Memo::new(move |_| image_choices(&tab.doc().source));
+    // coverImage @ref must name a <reference> image (the coverImageTarget keyref).
+    let choices = Memo::new(move |_| {
+        image_choices(&tab.doc().source).into_iter().filter(|c| c.place == "reference").collect::<Vec<_>>()
+    });
     let dirty = move || tab.cover_draft.with(|d| d.is_some());
     let busy = move || tab.applying.get();
 

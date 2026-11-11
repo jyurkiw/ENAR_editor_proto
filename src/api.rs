@@ -2,8 +2,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use shared::cover::CoverModel;
-use shared::{AppError, ApplyResult, FsEntry, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
+use shared::{AppError, ApplyResult, Change, FsEntry, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -77,14 +76,14 @@ pub async fn pick_folder(title: &str, start: Option<&str>) -> Option<String> {
     invoke("pick_folder", &A { title, start }).await.ok().flatten()
 }
 
-pub async fn apply_cover(path: &str, expected: &str, model: &CoverModel) -> Result<ApplyResult, AppError> {
+pub async fn apply_change(path: &str, expected: &str, change: &Change) -> Result<ApplyResult, AppError> {
     #[derive(Serialize)]
     struct A<'a> {
         path: &'a str,
         expected: &'a str,
-        model: &'a CoverModel,
+        change: &'a Change,
     }
-    invoke("apply_cover", &A { path, expected, model }).await
+    invoke("apply_change", &A { path, expected, change }).await
 }
 
 /// The DMs Guild logo file a supplement's cover would use: `src` relative to the

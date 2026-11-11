@@ -1,10 +1,11 @@
 //! App-wide state (provided as context) and the actions that change it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use shared::chapter::ChapterModel;
 use shared::cover::CoverModel;
 use shared::{AppError, FsEntry, OpenProject, OpenedDoc, Problem, ProjectInfo};
 
@@ -97,6 +98,8 @@ pub struct DocTab {
     pub mode: RwSignal<Mode>,
     /// The cover form's unapplied edits. None when it matches the file.
     pub cover_draft: RwSignal<Option<CoverModel>>,
+    /// Chapter forms' unapplied edits, by the chapter's name in the file.
+    pub chapter_drafts: RwSignal<HashMap<String, ChapterModel>>,
     /// An apply is running.
     pub applying: RwSignal<bool>,
     /// The Problems panel: the last refused apply's errors, and the text that was checked.
@@ -114,6 +117,7 @@ impl DocTab {
             selected: RwSignal::new(0),
             mode: RwSignal::new(Mode::Form),
             cover_draft: RwSignal::new(None),
+            chapter_drafts: RwSignal::new(HashMap::new()),
             applying: RwSignal::new(false),
             problems: RwSignal::new(Vec::new()),
             problem_source: RwSignal::new(String::new()),
@@ -142,14 +146,14 @@ impl DocTab {
     }
 
     /// Swaps in the file as an apply left it, keeping the tree's open nodes and the
-    /// selection where they were. `select_tag` selects that element instead, if it exists.
-    pub fn replace_doc(&self, doc: OpenedDoc, select_tag: Option<&str>) {
+    /// selection where they were. `select` picks the element to select instead, if any.
+    pub fn replace_doc(&self, doc: OpenedDoc, select: impl Fn(&DocData) -> Option<usize>) {
         let old = self.data.get_untracked();
         let open: Vec<Vec<usize>> = self.expanded.get_untracked().iter().map(|i| old.key_of(*i)).collect();
         let sel = old.key_of(self.selected.get_untracked());
         let new = Arc::new(DocData::new(doc));
         let expanded: HashSet<usize> = open.iter().map(|k| new.idx_of(k)).chain([0]).collect();
-        let selected = select_tag.and_then(|t| new.find_tag(t)).unwrap_or_else(|| new.idx_of(&sel));
+        let selected = select(&new).unwrap_or_else(|| new.idx_of(&sel));
         self.data.set(new);
         self.expanded.set(expanded);
         self.reveal(selected);
@@ -185,6 +189,8 @@ pub enum Dialog {
     },
     /// Create a supplement folder inside `parent`.
     NewSupplement { parent: String },
+    /// Add a chapter to the file in this tab.
+    NewChapter { tab: u32 },
 }
 
 #[derive(Clone, Copy)]

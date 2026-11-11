@@ -10,8 +10,7 @@ mod validate;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use shared::cover::CoverModel;
-use shared::{AppError, ApplyResult, FsEntry, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
+use shared::{AppError, ApplyResult, Change, FsEntry, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -97,13 +96,13 @@ async fn open_file(path: String, app: AppHandle) -> Result<OpenedDoc, AppError> 
     .await
 }
 
-/// Changes the file's <cover> to `model`. `expected` is the text the editor has open.
+/// Applies a form's change to the file. `expected` is the text the editor has open.
 #[tauri::command(rename_all = "snake_case")]
-async fn apply_cover(path: String, expected: String, model: CoverModel, app: AppHandle) -> Result<ApplyResult, AppError> {
+async fn apply_change(path: String, expected: String, change: Change, app: AppHandle) -> Result<ApplyResult, AppError> {
     blocking(move || {
         let state = app.state::<AppState>();
         let p = state.project()?;
-        validate::apply_edit(&path, &expected, &p, &state.validator, |src| shared::cover::plan(src, &model))
+        validate::apply_edit(&path, &expected, &p, &state.validator, |src| change.plan(src))
     })
     .await
 }
@@ -155,7 +154,7 @@ pub fn run() {
             list_dir,
             create_supplement,
             open_file,
-            apply_cover,
+            apply_change,
             find_logo,
             pick_folder
         ])

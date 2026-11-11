@@ -2,9 +2,11 @@
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use shared::{main_file_for_type, NewSupplement, SUPPLEMENT_TYPES};
+use shared::chapter::{self, ChapterEdit, KINDS};
+use shared::{main_file_for_type, Change, NewSupplement, SUPPLEMENT_TYPES};
 
 use crate::api;
+use crate::apply::apply;
 use crate::state::{ctx, Dialog};
 
 #[component]
@@ -55,6 +57,7 @@ pub fn Dialogs() -> impl IntoView {
             view! { <ConfigureProject root schemas compiler problem/> }.into_any()
         }
         Some(Dialog::NewSupplement { parent }) => view! { <NewSupplementDialog parent/> }.into_any(),
+        Some(Dialog::NewChapter { tab }) => view! { <NewChapterDialog tab_id=tab/> }.into_any(),
     }
 }
 
@@ -222,6 +225,97 @@ fn NewSupplementDialog(parent: String) -> impl IntoView {
                 <div class="buttons">
                     <button type="button" on:click=move |_| app.dialog.set(None)>"Cancel"</button>
                     <button type="submit" class="primary">"Create"</button>
+                </div>
+            </form>
+        </div>
+    }
+}
+
+/// "The Gnashing Gate" -> "gnashing-gate"
+fn slug(title: &str) -> String {
+    let words: Vec<String> = title
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .collect();
+    let skip = ["the", "a", "an"];
+    let words: Vec<&String> = match words.first() {
+        Some(f) if words.len() > 1 && skip.contains(&f.as_str()) => words.iter().skip(1).collect(),
+        _ => words.iter().collect(),
+    };
+    words.into_iter().map(String::as_str).collect::<Vec<_>>().join("-")
+}
+
+#[component]
+fn NewChapterDialog(tab_id: u32) -> impl IntoView {
+    let app = ctx();
+    let title = RwSignal::new(String::new());
+    let name = RwSignal::new(String::new());
+    let name_edited = RwSignal::new(false);
+    let kind = RwSignal::new("chapter".to_string());
+    let tab = move || app.tabs.with_untracked(|t| t.iter().find(|t| t.id == tab_id).copied());
+    let problem = move || {
+        let n = name.get();
+        if n.trim().is_empty() {
+            return Some("The chapter needs a name".to_string());
+        }
+        let t = tab()?;
+        let d = t.doc_untracked();
+        chapter::find_chapter(&d.source, &d.nodes, n.trim()).map(|_| format!("There's already a chapter named \"{}\"", n.trim()))
+    };
+    let create = move || {
+        if problem().is_some() {
+            return;
+        }
+        if let Some(t) = tab() {
+            app.dialog.set(None);
+            apply(t, Change::Chapter {
+                edit: ChapterEdit::Add {
+                    name: name.get_untracked().trim().to_string(),
+                    title: title.get_untracked().trim().to_string(),
+                    kind: kind.get_untracked(),
+                },
+            });
+        }
+    };
+    view! {
+        <div class="modal-backdrop">
+            <form class="modal" on:submit=move |ev| {
+                ev.prevent_default();
+                create();
+            }>
+                <h2>"Add chapter"</h2>
+                <p class="hint">"Added after the last chapter, and at the end of <chapterOrder>."</p>
+                <label class="field">
+                    <span class="field-label">"Title"</span>
+                    <input type="text" autofocus placeholder="The Gnashing Gate" prop:value=move || title.get()
+                        on:input=move |ev| {
+                            let v = event_target_value(&ev);
+                            if !name_edited.get_untracked() {
+                                name.set(slug(&v));
+                            }
+                            title.set(v);
+                        }/>
+                </label>
+                <label class="field">
+                    <span class="field-label">"Name"</span>
+                    <input type="text" placeholder="gnashing-gate" prop:value=move || name.get()
+                        on:input=move |ev| {
+                            name_edited.set(true);
+                            name.set(event_target_value(&ev));
+                        }/>
+                    <span class="hint">"@name: the slug chapterRef and chapterOrder use"</span>
+                </label>
+                <label class="field">
+                    <span class="field-label">"Kind"</span>
+                    <select on:change=move |ev| kind.set(event_target_value(&ev))>
+                        {KINDS.iter().map(|(k, d)| view! { <option value=*k selected=*k == "chapter">{format!("{k} — {d}")}</option> }).collect_view()}
+                    </select>
+                </label>
+                {move || problem().filter(|_| !name.get().is_empty()).map(|p| view! { <p class="problem">{p}</p> })}
+                <div class="buttons">
+                    <button type="button" on:click=move |_| app.dialog.set(None)>"Cancel"</button>
+                    <button type="submit" class="primary" disabled=move || problem().is_some()>"Add chapter"</button>
                 </div>
             </form>
         </div>

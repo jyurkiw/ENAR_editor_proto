@@ -5,6 +5,8 @@
 //! tree; the main area showing the selected element's source.
 
 mod api;
+mod apply;
+mod chapter_form;
 mod cover_form;
 mod dialogs;
 mod files;
