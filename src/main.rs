@@ -1,0 +1,136 @@
+//! Enigma Narrative supplement editor: the Leptos frontend.
+//!
+//! Layout: a toolbar; file tabs across the top (one per open file); vertical tabs on the
+//! left switching the side panel between the File-system tree and the File-structure
+//! tree; the main area showing the selected element's source.
+
+mod api;
+mod cover_form;
+mod dialogs;
+mod files;
+mod state;
+mod structure;
+mod viewer;
+
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+
+use dialogs::{BusyNotice, Dialogs, ErrorDialog};
+use files::{ContextMenu, FilesPanel};
+use state::{ctx, AppCtx, Dialog, Side};
+use structure::StructurePanel;
+use viewer::Viewer;
+
+fn main() {
+    console_error_panic_hook::set_once();
+    leptos::mount::mount_to_body(App);
+}
+
+#[component]
+fn App() -> impl IntoView {
+    let app = AppCtx::new();
+    provide_context(app);
+    // Reopen the last project.
+    spawn_local(async move {
+        if let Some(p) = api::last_project().await {
+            app.open_project(p);
+        }
+    });
+    view! {
+        <div class="app">
+            <Toolbar/>
+            <FileTabs/>
+            <div class="body">
+                <SideTabs/>
+                <aside class="side">
+                    {move || match app.side.get() {
+                        Side::Files => view! { <FilesPanel/> }.into_any(),
+                        Side::Structure => view! { <StructurePanel/> }.into_any(),
+                    }}
+                </aside>
+                <main class="main"><Viewer/></main>
+            </div>
+            <ContextMenu/>
+            <Dialogs/>
+            <BusyNotice/>
+            <ErrorDialog/>
+        </div>
+    }
+}
+
+#[component]
+fn Toolbar() -> impl IntoView {
+    let app = ctx();
+    let new_supplement = move |_| {
+        if let Some(p) = app.project.get_untracked() {
+            app.dialog.set(Some(Dialog::NewSupplement { parent: p.root }));
+        }
+    };
+    view! {
+        <header class="toolbar">
+            <span class="brand">"Enigma Narrative"</span>
+            <span class="project" title=move || app.project.get().map(|p| p.root).unwrap_or_default()>
+                {move || app.project.get().map(|p| p.name).unwrap_or_else(|| "no project".into())}
+            </span>
+            <span class="spacer"></span>
+            <button on:click=move |_| app.pick_and_open_project()>"Open project…"</button>
+            <button disabled=move || app.project.get().is_none() on:click=new_supplement>"New supplement…"</button>
+        </header>
+    }
+}
+
+#[component]
+fn FileTabs() -> impl IntoView {
+    let app = ctx();
+    view! {
+        <nav class="file-tabs">
+            <For
+                each=move || app.tabs.get()
+                key=|t| t.id
+                children=move |t| {
+                    let id = t.id;
+                    let name = t.doc_untracked().name.clone();
+                    let folder = t.doc_untracked().path.rsplit(['/', '\\']).nth(1).unwrap_or("").to_string();
+                    let path = t.doc_untracked().path.clone();
+                    view! {
+                        <div
+                            class="file-tab"
+                            class:active=move || app.active.get() == Some(id)
+                            title=path
+                            on:click=move |_| app.active.set(Some(id))
+                            on:auxclick=move |ev| if ev.button() == 1 { app.close_tab(id) }
+                        >
+                            <span class="tab-name">{name}</span>
+                            <span class="tab-folder">{folder}</span>
+                            <button class="close" title="Close" on:click=move |ev| {
+                                ev.stop_propagation();
+                                app.close_tab(id);
+                            }>"×"</button>
+                        </div>
+                    }
+                }
+            />
+            <Show when=move || app.tabs.with(|t| t.is_empty())>
+                <div class="file-tabs-empty">"No open files"</div>
+            </Show>
+        </nav>
+    }
+}
+
+#[component]
+fn SideTabs() -> impl IntoView {
+    let app = ctx();
+    let tab = move |side: Side, label: &'static str| {
+        view! {
+            <button class="side-tab" class:active=move || app.side.get() == side on:click=move |_| app.side.set(side)>
+                {label}
+            </button>
+        }
+    };
+    view! {
+        <nav class="side-tabs">
+            {tab(Side::Files, "File system")}
+            {tab(Side::Structure, "File structure")}
+        </nav>
+    }
+}

@@ -1,0 +1,9 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+description = "Types and pure helpers shared by the Enigma editor's Tauri backend and Leptos frontend"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+quick-xml = "0.37"
