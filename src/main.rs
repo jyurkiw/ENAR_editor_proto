@@ -12,6 +12,7 @@ mod cover_form;
 mod dialogs;
 mod reference_form;
 mod files;
+mod inline_refs;
 mod state;
 mod structure;
 mod table_form;

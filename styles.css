@@ -398,3 +398,48 @@ button.small { font-size: 11px; padding: 1px 8px; }
 .cell.dirty .cell-text { border-color: var(--warn); }
 .cell.failed .cell-text { border-color: var(--bad); background: var(--bad-bg); }
 .cell-missing { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-style: italic; border: 1px dashed var(--border); border-radius: 4px; padding: 5px 8px; }
+
+/* ---- inline refs: preview line, pills, panels ---- */
+.p-preview {
+  margin-top: 4px; padding: 6px 9px; border-radius: 5px; background: var(--panel-2);
+  font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+}
+.p-preview .pv-text.b { font-weight: 700; }
+.p-preview .pv-text.i { font-style: italic; }
+.p-preview .pv-text.term { text-decoration: underline dotted var(--muted); }
+.pv-broken { color: var(--bad); }
+button.link { border: none; background: none; padding: 0 4px; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: inherit; }
+.ref-pill {
+  display: inline; font: inherit; line-height: inherit; padding: 0 5px; margin: 0 1px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.ref-pill:hover:not(:disabled) { border-color: var(--accent); }
+.ref-pill.sel { border-color: var(--accent); background: var(--accent-soft); }
+.ref-pill.st-creature { font-weight: 700; }
+.ref-pill.st-title { font-style: italic; }
+.ref-pill.unknown { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.ref-pill.bad { border-color: var(--bad); background: var(--bad-bg); color: var(--bad); }
+.ref-pill .pill-warn { margin-right: 3px; font-style: normal; }
+.ref-pill[class*="tag-monster"], .ref-pill.tag-nounRef { border-left: 3px solid #a04040; }
+.ref-pill.tag-spellRef { border-left: 3px solid #5a5aa0; }
+.ref-pill.tag-itemRef { border-left: 3px solid #2f6b3a; }
+.ref-pill.tag-dataRef { border-left: 3px solid #8a5a00; }
+.ref-pill.tag-chapterRef, .ref-pill.tag-figureRef { border-left: 3px solid #4a7a9a; }
+.ref-pill[class*="tag-coreBook"] { border-left: 3px solid var(--muted); }
+.ref-prints .ref-pill { cursor: default; }
+.pv-diags { list-style: none; margin: 3px 0 0; padding: 0; font-size: 12px; }
+.pv-diags li { color: var(--warn); cursor: pointer; padding: 1px 4px; border-radius: 3px; }
+.pv-diags li.error { color: var(--bad); }
+.pv-diags li:hover { background: var(--panel-2); }
+.diag-mark { margin-right: 5px; }
+.ref-panel { margin-top: 6px; border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
+.ref-panel.insert { border-style: dashed; }
+.ref-panel-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.ref-panel-title { font-weight: 600; }
+.ref-panel-xml { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
+.ref-fields { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.ref-fields .field { min-width: 180px; flex: 1 1 200px; margin: 0; }
+.ref-fields select, .ref-fields input { width: 100%; }
+.ref-prints { margin-top: 6px; font-size: 13px; }
+button.small.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }

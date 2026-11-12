@@ -10,10 +10,12 @@ use leptos::html;
 use leptos::prelude::*;
 use shared::block::{self, Block, BlockEdit, Container, Header};
 use shared::display::tokenize;
+use shared::inline::{self, RefCtx, RefTag};
 use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
+use crate::inline_refs::{default_tag, select_range, selection, RefEditPanel, RefInsertPanel, RefPreview};
 use crate::state::DocTab;
 
 fn highlighted(text: &str) -> impl IntoView {
@@ -150,6 +152,7 @@ fn BlockRow(
     pos: usize,
     blocks: Memo<Vec<Block>>,
     drag: Drag,
+    refctx: Memo<RefCtx>,
 ) -> impl IntoView {
     let block = Memo::new(move |_| blocks.with(|b| b.get(pos).cloned()));
     let child = move || block.get().map(|b| b.child).unwrap_or(0);
@@ -196,6 +199,44 @@ fn BlockRow(
     let add_after = move |_: MouseEvent| {
         apply(tab, Change::Block { edit: BlockEdit::AddP { at: at.get_value(), after: Some(child()) } });
     };
+    // Inline refs: the preview, the selected tag's panel, and the Insert panel.
+    let text_sig = Signal::derive(text);
+    let ta = NodeRef::<html::Textarea>::new();
+    let sel_ref = RwSignal::new(None::<usize>);
+    let ins_draft = RwSignal::new(None::<RefTag>);
+    let ins_at = StoredValue::new((0usize, 0usize));
+    let ins_sel = StoredValue::new(String::new());
+    let show_preview = Memo::new(move |_| text_sig.with(|t| t.contains('<') || t.contains('&')));
+    let pick = Callback::new(move |(a, b): (usize, usize)| select_range(ta, &text_sig.get_untracked(), a, b));
+    let set_text_cb = Callback::new(move |s: String| set_text(s));
+    let insert = Callback::new(move |xml: String| {
+        let t = text_sig.get_untracked();
+        let (a, b) = ins_at.get_value();
+        let (a, b) = (a.min(t.len()), b.min(t.len()));
+        let new = inline::replace(&t, a, b, &xml);
+        set_text(new.clone());
+        ins_draft.set(None);
+        let caret = a + xml.len();
+        request_animation_frame(move || select_range(ta, &new, caret, caret));
+    });
+    let open_insert = move |_: MouseEvent| {
+        let t = text_sig.get_untracked();
+        let (a, b) = selection(ta, &t);
+        ins_at.set_value((a, b));
+        ins_sel.set_value(t[a..b].to_string());
+        sel_ref.set(None);
+        ins_draft.set(Some(refctx.with_untracked(|c| default_tag("monsterRef", c, ""))));
+    };
+    let names_note = move || match tab.refs.get() {
+        None => Some(view! { <span class="hint">"Reading entry names…"</span> }.into_any()),
+        Some(Err(e)) => Some(view! {
+            <span class="hint bad">"Entry names unavailable: " {e}
+                <button type="button" class="link" on:click=move |_| tab.refresh_refs()>"retry"</button>
+            </span>
+        }.into_any()),
+        Some(Ok(_)) => None,
+    };
+
     let delete = move |_: MouseEvent| {
         let empty = block.get_untracked().is_some_and(|b| b.text.trim().is_empty());
         let ok = empty
@@ -266,12 +307,19 @@ fn BlockRow(
             {move || if is_p.get() {
                 view! {
                     <div class="block-main">
-                        <textarea class="p-text" id=move || format!("p-{}", child()) spellcheck="true"
+                        <textarea node_ref=ta class="p-text" id=move || format!("p-{}", child()) spellcheck="true"
                             prop:value=text on:input=move |ev| set_text(event_target_value(&ev))></textarea>
+                        <Show when=move || show_preview.get()>
+                            <RefPreview text=text_sig ctx=refctx selected=sel_ref pick/>
+                            {names_note}
+                        </Show>
+                        <RefEditPanel text=text_sig ctx=refctx selected=sel_ref set_text=set_text_cb pick/>
+                        <RefInsertPanel draft=ins_draft selected_text=ins_sel ctx=refctx insert/>
                         <div class="p-bar">
                             {move || failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
                             {move || (dirty() && !failed()).then(|| view! { <span class="state-badge">"unapplied"</span> })}
                             <span class="spacer"></span>
+                            <button class="small" title="Insert a ref tag at the cursor" on:click=open_insert>"+ Ref"</button>
                             <button class="small" title="Insert an empty paragraph below" disabled=busy on:click=add_after>"+ ¶ below"</button>
                             <button class="small" disabled=move || !dirty() || busy() on:click=move |_| revert()>"Revert"</button>
                             <button class="small primary" disabled=move || !dirty() || busy() on:click=move |_| do_apply()>"Apply"</button>
@@ -336,6 +384,13 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
     });
     let drag = Drag { from: RwSignal::new(None), at: RwSignal::new(None) };
     let busy = move || tab.applying.get();
+    // What the paragraphs' ref tags resolve against: this file's entries, chapters and
+    // figures, and the printed values the backend read.
+    let refctx = Memo::new(move |_| {
+        let d = tab.doc();
+        let index = tab.refs.with(|r| r.as_ref().and_then(|r| r.as_ref().ok().cloned()));
+        RefCtx::from_doc(&d.source, &d.nodes, index)
+    });
 
     // Scroll to and focus a paragraph picked in the tree, or one just added.
     Effect::new(move |_| {
@@ -381,12 +436,12 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
                     <HeaderForm tab at base=header links/>
                     <div class="block-body">
                         <div class="body-tools">
-                            <span class="hint">"Each paragraph is its XML: inline tags like <b> and <monsterRef/> are kept. Write & as &amp;."</span>
+                            <span class="hint">"Each paragraph is its XML: inline tags like <b> and <monsterRef/> are kept. Write & as &amp;. The line under a paragraph shows it as printed; click a ref to edit it."</span>
                             <span class="spacer"></span>
                             <button class="small" disabled=busy on:click=add_first>"+ ¶ at start"</button>
                         </div>
                         <For each=move || 0..blocks.with(|b| b.len()) key=|i| *i let:pos>
-                            <BlockRow tab at pos blocks drag/>
+                            <BlockRow tab at pos blocks drag refctx/>
                         </For>
                         <Show when=move || blocks.with(|b| b.is_empty())>
                             <p class="hint">"No paragraphs yet."</p>

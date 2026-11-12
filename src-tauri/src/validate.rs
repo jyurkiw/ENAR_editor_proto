@@ -17,21 +17,29 @@ use crate::project::path_str;
 use shared::xml as xmldoc;
 
 pub const SCRIPT: &str = include_str!("../resources/validate.py");
+pub const REFS_SCRIPT: &str = include_str!("../resources/refs.py");
 
 /// Where the validator script and its Python environment live.
 pub struct Validator {
     pub script: PathBuf,
+    /// Resolves <reference> entries to what the compiler prints (refs.py).
+    pub refs_script: PathBuf,
     pub venv: PathBuf,
 }
 
 impl Validator {
     pub fn install(cache_dir: &Path) -> std::io::Result<Self> {
         std::fs::create_dir_all(cache_dir)?;
-        let script = cache_dir.join("validate.py");
-        if std::fs::read_to_string(&script).ok().as_deref() != Some(SCRIPT) {
-            std::fs::write(&script, SCRIPT)?;
-        }
-        Ok(Validator { script, venv: cache_dir.join("venv") })
+        let write = |name: &str, text: &str| -> std::io::Result<PathBuf> {
+            let p = cache_dir.join(name);
+            if std::fs::read_to_string(&p).ok().as_deref() != Some(text) {
+                std::fs::write(&p, text)?;
+            }
+            Ok(p)
+        };
+        let script = write("validate.py", SCRIPT)?;
+        let refs_script = write("refs.py", REFS_SCRIPT)?;
+        Ok(Validator { script, refs_script, venv: cache_dir.join("venv") })
     }
 }
 
@@ -76,6 +84,49 @@ fn uv_exe() -> PathBuf {
         dirs.push(PathBuf::from(local).join("Programs").join("uv"));
     }
     dirs.into_iter().map(|d| d.join(exe)).find(|f| f.is_file()).unwrap_or_else(|| PathBuf::from("uv"))
+}
+
+fn python(v: &Validator, compiler: &str, script: &Path) -> Command {
+    let mut cmd = Command::new(uv_exe());
+    cmd.args(["run", "--quiet", "--project", compiler, "python"]).arg(script).env("UV_PROJECT_ENVIRONMENT", &v.venv);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+#[derive(Deserialize)]
+struct PyRefs {
+    ok: bool,
+    #[serde(default)]
+    entries: std::collections::HashMap<String, shared::inline::IndexEntry>,
+    #[serde(default)]
+    problems: Vec<String>,
+}
+
+/// What the compiler prints for each <reference> entry's values, read with the
+/// compiler's own loader (refs.py), so the entries' files load as they do in a build.
+pub fn ref_index(path: &str, project: &ProjectInfo, v: &Validator) -> Result<shared::inline::RefIndex, AppError> {
+    let file = dunce::canonicalize(path).map_err(|e| AppError::new(format!("Can't open {path}: {e}")))?;
+    let out = python(v, &project.compiler_dir, &v.refs_script)
+        .arg(&file)
+        .arg(&project.compiler_dir)
+        .output()
+        .map_err(|e| AppError::new(format!("couldn't run uv: {e}")))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json = stdout.lines().rev().find(|l| l.trim_start().starts_with('{'));
+    match json.and_then(|j| serde_json::from_str::<PyRefs>(j).ok()) {
+        Some(r) if r.ok => Ok(shared::inline::RefIndex { entries: r.entries, problems: r.problems }),
+        Some(r) => Err(AppError::with_details("Can't read the reference entries.", r.problems)),
+        None => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let msg = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("no output");
+            Err(AppError::new(format!("Reading the reference entries failed: {}", msg.trim())))
+        }
+    }
 }
 
 fn run_lxml(v: &Validator, compiler: &str, file: &Path, xsd: &Path) -> Outcome {
@@ -340,6 +391,38 @@ mod real {
         for c in &doc.nodes[0].children {
             println!("  {} [{}]", doc.nodes[*c].tag, doc.nodes[*c].label);
         }
+    }
+
+    /// Every inline ref in the test adventure resolves, with no problems, to the text the
+    /// compiler prints.
+    #[test]
+    #[ignore]
+    fn resolves_every_inline_ref() {
+        use shared::inline::{self, Checker, RefCtx};
+        let (p, v) = setup();
+        let path = format!("{REPO}/adventures/compiler-test/adventure.xml");
+        let doc = open_file(&path, &p, &v).unwrap();
+        let index = ref_index(&path, &p, &v).unwrap();
+        assert_eq!(index.entries["hearthward"].values["name"], "Thistlewood's Hearthward");
+        assert_eq!(index.entries["krugga"].values["shortName"], "Krugga");
+        let ctx = RefCtx::from_doc(&doc.source, &doc.nodes, Some(index));
+        let mut seen = 0;
+        for n in doc.nodes.iter().filter(|n| matches!(n.tag.as_str(), "p" | "li" | "trigger" | "td")) {
+            let Some((a, b)) = shared::edit::inner_span(&doc.source, n) else { continue };
+            let text = &doc.source[a..b];
+            let pieces = inline::parse(text).unwrap_or_else(|e| panic!("line {}: {e:?}", n.line));
+            let d = ctx.check(text, &pieces);
+            assert!(d.is_empty(), "line {}: {d:?}", n.line);
+            for t in inline::refs(&pieces) {
+                let r = ctx.resolve(t);
+                assert!(r.known, "line {}: {} unresolved", n.line, t.to_xml());
+                seen += 1;
+                if seen <= 60 {
+                    println!("{:>4}  {:<55} {}", n.line, t.to_xml(), r.text);
+                }
+            }
+        }
+        assert!(seen > 30, "only {seen} refs");
     }
 
     #[test]

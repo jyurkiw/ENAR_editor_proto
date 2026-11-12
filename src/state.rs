@@ -131,6 +131,9 @@ pub struct DocTab {
     /// new text), and cells whose last apply was refused.
     pub cell_drafts: RwSignal<HashMap<(TableAt, Part, usize, usize), (String, String)>>,
     pub cell_failed: RwSignal<HashSet<(TableAt, Part, usize, usize)>>,
+    /// What the file's `<reference>` entries print, for the paragraph preview: None
+    /// while loading, Err when the backend couldn't read them.
+    pub refs: RwSignal<Option<Result<shared::inline::RefIndex, String>>>,
     /// An apply is running.
     pub applying: RwSignal<bool>,
     /// Changes waiting for the running apply to finish.
@@ -166,6 +169,7 @@ impl DocTab {
             th_focus: RwSignal::new(None),
             cell_drafts: RwSignal::new(HashMap::new()),
             cell_failed: RwSignal::new(HashSet::new()),
+            refs: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),
             problems: RwSignal::new(Vec::new()),
@@ -206,6 +210,18 @@ impl DocTab {
         self.data.set(new);
         self.expanded.set(expanded);
         self.reveal(selected);
+    }
+
+    /// Reads what the `<reference>` entries print, again (after an entry changes).
+    pub fn refresh_refs(&self) {
+        let tab = *self;
+        let path = self.data.with_untracked(|d| d.path.clone());
+        spawn_local(async move {
+            let r = api::ref_index(&path).await.map_err(|e| {
+                std::iter::once(e.message).chain(e.details).collect::<Vec<_>>().join(" ")
+            });
+            tab.refs.set(Some(r));
+        });
     }
 
     pub fn show_problems(&self, problems: Vec<Problem>, checked: String) {
@@ -349,7 +365,9 @@ impl AppCtx {
                     let id = dup.unwrap_or_else(|| {
                         let id = self.next_id.get_value();
                         self.next_id.set_value(id + 1);
-                        self.tabs.update(|t| t.push(DocTab::new(id, doc)));
+                        let tab = DocTab::new(id, doc);
+                        tab.refresh_refs();
+                        self.tabs.update(|t| t.push(tab));
                         id
                     });
                     self.active.set(Some(id));

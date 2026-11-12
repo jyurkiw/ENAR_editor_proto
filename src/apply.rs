@@ -74,6 +74,9 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                 saved(tab, &change, card.as_deref());
                 tab.clear_problems();
                 tab.replace_doc(doc, selection(&change));
+                if matches!(change, Change::Reference { .. }) {
+                    tab.refresh_refs();
+                }
             }
             Ok(ApplyResult::Invalid { problems }) => {
                 let checked = change.plan(&data.source).unwrap_or_default();

@@ -8,6 +8,7 @@ pub mod chapter;
 pub mod cover;
 pub mod display;
 pub mod edit;
+pub mod inline;
 pub mod reference;
 pub mod table;
 pub mod values;

@@ -86,6 +86,11 @@ pub async fn apply_change(path: &str, expected: &str, change: &Change) -> Result
     invoke("apply_change", &A { path, expected, change }).await
 }
 
+/// What each `<reference>` entry of the file prints (read with the compiler's loader).
+pub async fn ref_index(path: &str) -> Result<shared::inline::RefIndex, AppError> {
+    invoke("ref_index", &PathArg { path }).await
+}
+
 /// The DMs Guild logo file a supplement's cover would use: `src` relative to the
 /// supplement, or DMsGuildProductLogoLarge.png in its folder or any folder above.
 pub async fn find_logo(doc_path: &str, src: Option<&str>) -> Option<String> {

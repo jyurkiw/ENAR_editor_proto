@@ -107,6 +107,17 @@ async fn apply_change(path: String, expected: String, change: Change, app: AppHa
     .await
 }
 
+/// What each <reference> entry of the file prints, for the paragraph preview.
+#[tauri::command(rename_all = "snake_case")]
+async fn ref_index(path: String, app: AppHandle) -> Result<shared::inline::RefIndex, AppError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let p = state.project()?;
+        validate::ref_index(&path, &p, &state.validator)
+    })
+    .await
+}
+
 /// The DMs Guild logo a cover would print, as the compiler finds it.
 #[tauri::command(rename_all = "snake_case")]
 fn find_logo(doc_path: String, src: Option<String>) -> Option<String> {
@@ -155,6 +166,7 @@ pub fn run() {
             create_supplement,
             open_file,
             apply_change,
+            ref_index,
             find_logo,
             pick_folder
         ])
