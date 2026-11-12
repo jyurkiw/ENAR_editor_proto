@@ -7,12 +7,14 @@ use leptos::task::spawn_local;
 use shared::chapter::{self, ChapterEdit};
 use shared::block::{self, BlockEdit, Container};
 use shared::reference::RefEdit;
+use shared::boxes::{self, BoxEdit};
 use shared::list::{self, ListEdit};
 use shared::table::{self, TableAt, TableEdit};
 use shared::{ApplyResult, Change};
 
 use crate::api;
 use crate::state::{ctx, DocData, DocTab};
+use shared::boxes::BoxAt;
 
 /// The card key of a reference entry.
 pub fn ref_key(tag: &str, id: &str) -> String {
@@ -42,15 +44,23 @@ fn selection(change: &Change) -> impl Fn(&DocData) -> Option<usize> + 'static {
                 other => other.container().clone(),
             };
             let ci = block::find(&d.source, &d.nodes, &at)?;
-            // A new list opens in the list editor.
-            if let BlockEdit::AddList { after, .. } = edit {
+            // A new list or box opens in its editor.
+            let new_tag = match edit {
+                BlockEdit::AddList { after, .. } => Some(("list", after)),
+                BlockEdit::AddBox { after, tag, .. } => Some((tag.as_str(), after)),
+                _ => None,
+            };
+            if let Some((tag, after)) = new_tag {
                 let pos = match after {
                     Some(a) => a + 1,
-                    None => d.nodes[ci].children.iter().position(|k| d.nodes[*k].tag == "list")?,
+                    None => d.nodes[ci].children.iter().position(|k| d.nodes[*k].tag == tag)?,
                 };
-                return d.nodes[ci].children.get(pos).copied().filter(|k| d.nodes[*k].tag == "list").or(Some(ci));
+                return d.nodes[ci].children.get(pos).copied().filter(|k| d.nodes[*k].tag == tag).or(Some(ci));
             }
             Some(ci)
+        }
+        Change::Box { edit } => {
+            boxes::find(&d.source, &d.nodes, edit.at()).or_else(|| block::find(&d.source, &d.nodes, &edit.at().at))
         }
         Change::List { edit } => {
             // Still there: the list; deleted: its section or sidebar.
@@ -111,6 +121,16 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                         f.insert(k);
                     });
                 }
+                if let Change::Box { edit: BoxEdit::SetTrigger { at, .. } | BoxEdit::SetP { at, .. } } = &change {
+                    let slot = match &change {
+                        Change::Box { edit: BoxEdit::SetP { n, .. } } => Some(*n),
+                        _ => None,
+                    };
+                    let k = (at.clone(), slot);
+                    tab.box_failed.update(|f| {
+                        f.insert(k);
+                    });
+                }
                 if let Change::List { edit: ListEdit::SetItem { at, n, .. } } = &change {
                     let k = (at.clone(), *n);
                     tab.li_failed.update(|f| {
@@ -162,7 +182,7 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                     f.remove(&k);
                 });
             }
-            BlockEdit::AddList { .. } => {}
+            BlockEdit::AddList { .. } | BlockEdit::AddBox { .. } => {}
             BlockEdit::AddP { after, .. } => {
                 // Focus the new paragraph: right after `after`, or first in the body.
                 if let Some(a) = after {
@@ -176,6 +196,34 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 tab.p_failed.update(|f| f.retain(|(a, c)| *a != at || *c < child));
             }
         },
+        Change::Box { edit } => {
+            let at = edit.at().clone();
+            // Paragraphs from `from` on shifted (or the box is gone).
+            let from = match edit {
+                BoxEdit::SetTrigger { .. } | BoxEdit::SetP { .. } => {
+                    let slot = if let BoxEdit::SetP { n, .. } = edit { Some(*n) } else { None };
+                    let k = (at.clone(), slot);
+                    tab.box_drafts.update(|d| {
+                        d.remove(&k);
+                    });
+                    tab.box_failed.update(|f| {
+                        f.remove(&k);
+                    });
+                    None
+                }
+                BoxEdit::Speaker { .. } => None,
+                BoxEdit::AddP { after, .. } => Some(after.map_or(0, |a| a + 1)),
+                BoxEdit::DeleteP { n, with_box, .. } => Some(if *with_box { 0 } else { *n }),
+                BoxEdit::MoveP { n, before, .. } => Some((*n).min(before.unwrap_or(*n))),
+                BoxEdit::Delete { .. } => Some(0),
+            };
+            if let Some(from) = from {
+                let gone = matches!(edit, BoxEdit::Delete { .. } | BoxEdit::DeleteP { with_box: true, .. });
+                let keep = move |a: &BoxAt, s: &Option<usize>| *a != at || (!gone && s.is_none_or(|i| i < from));
+                tab.box_drafts.update(|d| d.retain(|(a, s), _| keep(a, s)));
+                tab.box_failed.update(|f| f.retain(|(a, s)| keep(a, s)));
+            }
+        }
         Change::List { edit } => {
             let at = edit.at().clone();
             // Items from `from` on shifted (or the list is gone): their drafts no longer match.

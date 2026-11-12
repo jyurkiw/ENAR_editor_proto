@@ -715,6 +715,63 @@ mod real {
 
     #[test]
     #[ignore]
+    fn apply_box_round_trip() {
+        use shared::block::{self, BlockEdit};
+        use shared::boxes::{self, BoxEdit};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let file = t.path().join("adventure.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/adventure.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, change: shared::Change| match apply_edit(&path_str(&file), expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc.source,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        let b = |e: BoxEdit| shared::Change::Box { edit: e };
+        // The first dialog in the file.
+        let nodes = xmldoc::parse(&src).unwrap().nodes;
+        let mut parents = vec![None; nodes.len()];
+        for (i, n) in nodes.iter().enumerate() {
+            for c in &n.children {
+                parents[*c] = Some(i);
+            }
+        }
+        let di = nodes.iter().position(|n| n.tag == "dialog").unwrap();
+        let at = boxes::box_at(&src, &nodes, &parents, di).unwrap();
+        let view = |s: &str| {
+            let nodes = xmldoc::parse(s).unwrap().nodes;
+            boxes::find(s, &nodes, &at).map(|i| boxes::read(s, &nodes, i))
+        };
+        let v0 = view(&src).unwrap();
+        assert_eq!(v0.tag, "dialog");
+        assert!(!v0.speaker.is_empty() && v0.paras.len() >= 2);
+
+        let cur = run(&src, b(BoxEdit::Speaker { at: at.clone(), speaker: "Garrick Moss".into() }));
+        let cur = run(&cur, b(BoxEdit::SetTrigger { at: at.clone(), text: "When the characters ask about the <b>dogs</b>".into() }));
+        assert!(view(&cur).unwrap().has_trigger);
+        let cur = run(&cur, b(BoxEdit::AddP { at: at.clone(), after: None }));
+        let cur = run(&cur, b(BoxEdit::SetP { at: at.clone(), n: 0, text: "First, a <monsterRef ref=\"krugga\" value=\"shortName\"/>.".into() }));
+        let cur = run(&cur, b(BoxEdit::MoveP { at: at.clone(), n: 0, before: None }));
+        assert!(view(&cur).unwrap().paras.last().unwrap().starts_with("First"));
+        let cur = run(&cur, b(BoxEdit::SetTrigger { at: at.clone(), text: String::new() }));
+        assert!(!view(&cur).unwrap().has_trigger);
+        // Delete paragraphs down to one, then leave the box empty: still valid.
+        let mut cur = cur;
+        while view(&cur).unwrap().paras.len() > 0 {
+            cur = run(&cur, b(BoxEdit::DeleteP { at: at.clone(), n: 0, with_box: false }));
+        }
+        // A new read-aloud box before it, then delete the dialog.
+        let sec = at.at.clone();
+        let cur = run(&cur, shared::Change::Block { edit: BlockEdit::AddBox { at: sec.clone(), after: Some(at.child - 1), tag: "speakAloud".into() } });
+        let moved = boxes::BoxAt { at: sec.clone(), child: at.child + 1 };
+        let cur = run(&cur, b(BoxEdit::Delete { at: moved }));
+        let nodes = xmldoc::parse(&cur).unwrap().nodes;
+        let ci = block::find(&cur, &nodes, &sec).unwrap();
+        assert_eq!(nodes[nodes[ci].children[at.child]].tag, "speakAloud");
+    }
+
+    #[test]
+    #[ignore]
     fn apply_table_round_trip() {
         use shared::table::{self, TableAt, TableEdit};
         let (p, v) = setup();

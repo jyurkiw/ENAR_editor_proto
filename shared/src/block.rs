@@ -64,6 +64,9 @@ pub enum BlockEdit {
     AddP { at: Container, after: Option<usize> },
     /// A new one-item list after child `after`, or first in the body when None.
     AddList { at: Container, after: Option<usize> },
+    /// A new `<speakAloud>` or `<dialog>` (tag) with one empty paragraph, after child
+    /// `after` or first in the body. Sections only.
+    AddBox { at: Container, after: Option<usize>, tag: String },
     /// Delete a paragraph.
     DeleteP { at: Container, child: usize },
     /// Move a body child before another, or to the end of the body.
@@ -77,6 +80,7 @@ impl BlockEdit {
             | BlockEdit::SetP { at, .. }
             | BlockEdit::AddP { at, .. }
             | BlockEdit::AddList { at, .. }
+            | BlockEdit::AddBox { at, .. }
             | BlockEdit::DeleteP { at, .. }
             | BlockEdit::Move { at, .. } => at,
         }
@@ -337,8 +341,20 @@ pub fn plan(source: &str, e: &BlockEdit) -> Result<String, String> {
             }
             edit::apply(source, &[set_inner(source, p, text).ok_or("bad <p>")?])
         }
-        BlockEdit::AddP { after, .. } | BlockEdit::AddList { after, .. } => {
-            let xml = if matches!(e, BlockEdit::AddList { .. }) { crate::list::new_list_xml(source) } else { "<p></p>".into() };
+        BlockEdit::AddP { after, .. } | BlockEdit::AddList { after, .. } | BlockEdit::AddBox { after, .. } => {
+            let xml = match e {
+                BlockEdit::AddList { .. } => crate::list::new_list_xml(source),
+                BlockEdit::AddBox { tag, .. } => {
+                    if !crate::boxes::TAGS.contains(&tag.as_str()) {
+                        return Err(format!("<{tag}> isn't a box"));
+                    }
+                    if c.tag != "section" {
+                        return Err(format!("only a section can hold a <{tag}>"));
+                    }
+                    crate::boxes::new_box_xml(source, tag)
+                }
+                _ => "<p></p>".into(),
+            };
             let anchor = match after {
                 Some(i) => Anchor::After(child(&nodes, c, *i)?),
                 None => {

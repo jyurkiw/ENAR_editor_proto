@@ -50,6 +50,44 @@ fn tag_name(tag: &str) -> &'static str {
     }
 }
 
+/// The non-paragraph blocks a container can take, for the add menu.
+fn other_blocks(at: &Container) -> &'static [(&'static str, &'static str)] {
+    match at {
+        Container::Section { .. } => &[("list", "List"), ("speakAloud", "Read-aloud box"), ("dialog", "Dialog")],
+        Container::Sidebar { .. } => &[("list", "List")],
+    }
+}
+
+/// A new block of kind `what` ("list", "speakAloud", "dialog") after child `after`.
+fn add_block(tab: DocTab, at: Container, after: Option<usize>, what: &str) {
+    let edit = match what {
+        "list" => BlockEdit::AddList { at, after },
+        tag => BlockEdit::AddBox { at, after, tag: tag.to_string() },
+    };
+    apply(tab, Change::Block { edit });
+}
+
+/// A select that adds a block and resets: "+ other below ▾".
+fn add_menu(tab: DocTab, at: StoredValue<Container>, label: &'static str, after: impl Fn() -> Option<usize> + Copy + Send + Sync + 'static) -> impl IntoView {
+    let busy = move || tab.applying.get();
+    view! {
+        <select class="add-menu" title="Insert a new block" disabled=busy
+            on:click=move |ev: MouseEvent| ev.stop_propagation()
+            on:change=move |ev| {
+                let v = event_target_value(&ev);
+                if let Some(s) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
+                    s.set_value("");
+                }
+                if !v.is_empty() {
+                    add_block(tab, at.get_value(), after(), &v);
+                }
+            }>
+            <option value="" selected=true>{label}</option>
+            {other_blocks(&at.get_value()).iter().map(|(v, l)| view! { <option value=*v>{*l}</option> }).collect_view()}
+        </select>
+    }
+}
+
 #[component]
 fn HeaderForm(tab: DocTab, at: StoredValue<Container>, base: Memo<Option<Header>>, links: Memo<usize>) -> impl IntoView {
     let is_sidebar = matches!(at.get_value(), Container::Sidebar { .. });
@@ -204,9 +242,6 @@ fn BlockRow(
     let tools = RefTools::new(Signal::derive(text), Callback::new(move |s: String| set_text(s)), ta, refctx);
     let open_insert = move |_: MouseEvent| tools.open_insert();
 
-    let add_list = move |_: MouseEvent| {
-        apply(tab, Change::Block { edit: BlockEdit::AddList { at: at.get_value(), after: Some(child()) } });
-    };
     let delete = move |_: MouseEvent| {
         let empty = block.get_untracked().is_some_and(|b| b.text.trim().is_empty());
         let ok = empty
@@ -286,7 +321,7 @@ fn BlockRow(
                             <span class="spacer"></span>
                             <button class="small" title="Insert a ref tag at the cursor" on:click=open_insert>"+ Ref"</button>
                             <button class="small" title="Insert an empty paragraph below" disabled=busy on:click=add_after>"+ ¶ below"</button>
-                            <button class="small" title="Insert a one-item list below" disabled=busy on:click=add_list>"+ list below"</button>
+                            {add_menu(tab, at, "+ other below…", move || Some(child()))}
                             <button class="small" disabled=move || !dirty() || busy() on:click=move |_| revert()>"Revert"</button>
                             <button class="small primary" disabled=move || !dirty() || busy() on:click=move |_| do_apply()>"Apply"</button>
                             <button class="icon-btn danger" title="Delete paragraph" disabled=busy on:click=delete>"✕"</button>
@@ -297,7 +332,7 @@ fn BlockRow(
                 let b = block.get().unwrap_or(Block { child: 0, tag: String::new(), text: String::new(), source: String::new() });
                 let src = b.source.clone();
                 // Lists and tables have their own editors: their summary links there.
-                let has_editor = b.tag == "table" || b.tag == "list";
+                let has_editor = matches!(b.tag.as_str(), "table" | "list" | "speakAloud" | "dialog");
                 let open_editor = move |ev: MouseEvent| {
                     ev.stop_propagation();
                     let d = tab.doc_untracked();
@@ -307,7 +342,11 @@ fn BlockRow(
                         }
                     }
                 };
-                let editor_name = if b.tag == "list" { "list editor" } else { "table editor" };
+                let editor_name = match b.tag.as_str() {
+                    "list" => "list editor",
+                    "table" => "table editor",
+                    _ => "box editor",
+                };
                 view! {
                     <div class="block-main readonly">
                         <div class="ro-head" on:click=move |_| open.update(|o| *o = !*o)>
@@ -329,10 +368,7 @@ fn BlockRow(
                                 ev.stop_propagation();
                                 add_after(ev);
                             }>"+ ¶ below"</button>
-                            <button class="small" title="Insert a one-item list below" disabled=busy on:click=move |ev: MouseEvent| {
-                                ev.stop_propagation();
-                                add_list(ev);
-                            }>"+ list below"</button>
+                            {add_menu(tab, at, "+ other below…", move || Some(child()))}
                             <span class="twist">{move || if open.get() { "▾" } else { "▸" }}</span>
                         </div>
                         <Show when=move || open.get()>
@@ -428,9 +464,7 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
                             <span class="hint">"Each paragraph is its XML: inline tags like <b> and <monsterRef/> are kept. Write & as &amp;. The line under a paragraph shows it as printed; click a ref to edit it."</span>
                             <span class="spacer"></span>
                             <button class="small" disabled=busy on:click=add_first>"+ ¶ at start"</button>
-                            <button class="small" disabled=busy on:click=move |_| {
-                                apply(tab, Change::Block { edit: BlockEdit::AddList { at: at.get_value(), after: None } })
-                            }>"+ list at start"</button>
+                            {add_menu(tab, at, "+ other at start…", || None)}
                         </div>
                         <For each=move || 0..blocks.with(|b| b.len()) key=|i| *i let:pos>
                             <BlockRow tab at pos blocks drag refctx/>

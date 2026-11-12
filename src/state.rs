@@ -9,6 +9,7 @@ use shared::chapter::ChapterModel;
 use shared::cover::CoverModel;
 use shared::block::{Container, Header};
 use shared::reference::RefEntry;
+use shared::boxes::BoxAt;
 use shared::list::ListAt;
 use shared::table::{Part, TableAt};
 use shared::Change;
@@ -137,6 +138,12 @@ pub struct DocTab {
     pub li_drafts: RwSignal<HashMap<(ListAt, usize), (String, String)>>,
     pub li_failed: RwSignal<HashSet<(ListAt, usize)>>,
     pub li_focus: RwSignal<Option<usize>>,
+    /// Box forms (speakAloud, dialog): drafts by (box, slot), the slot being None for
+    /// the trigger and Some(n) for paragraph n, as (the text they were made from, the new
+    /// text); slots whose last apply was refused; and the slot to focus.
+    pub box_drafts: RwSignal<HashMap<(BoxAt, Option<usize>), (String, String)>>,
+    pub box_failed: RwSignal<HashSet<(BoxAt, Option<usize>)>>,
+    pub box_focus: RwSignal<Option<Option<usize>>>,
     /// What the file's `<reference>` entries print, for the paragraph preview: None
     /// while loading, Err when the backend couldn't read them.
     pub refs: RwSignal<Option<Result<shared::inline::RefIndex, String>>>,
@@ -178,6 +185,9 @@ impl DocTab {
             li_drafts: RwSignal::new(HashMap::new()),
             li_failed: RwSignal::new(HashSet::new()),
             li_focus: RwSignal::new(None),
+            box_drafts: RwSignal::new(HashMap::new()),
+            box_failed: RwSignal::new(HashSet::new()),
+            box_focus: RwSignal::new(None),
             refs: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),

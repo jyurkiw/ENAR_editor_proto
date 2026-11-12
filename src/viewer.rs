@@ -18,7 +18,9 @@ use shared::block::{self as blocks, Container};
 use shared::table::{self as tables, TableAt};
 
 use crate::block_form::BlockForm;
+use crate::box_form::BoxForm;
 use crate::list_form::ListForm;
+use shared::boxes::{self as boxes, BoxAt};
 use crate::table_form::TableForm;
 use shared::list::{self as lists, ListAt};
 use crate::chapter_form::ChapterForm;
@@ -40,6 +42,8 @@ enum FormKind {
     Table(TableAt),
     /// A list in a section or sidebar, or an item in it.
     List(ListAt),
+    /// A speakAloud or dialog box in a section, or its trigger or a paragraph in it.
+    Box(BoxAt),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
@@ -56,6 +60,11 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     let list = if n.tag == "li" { d.parents.get(idx).copied().flatten() } else { Some(idx) };
     if let Some(at) = list.and_then(|l| lists::list_at(&d.source, &d.nodes, &d.parents, l)) {
         return Some(FormKind::List(at));
+    }
+    // A box, or its trigger or a paragraph in it: the box editor.
+    let in_box = if matches!(n.tag.as_str(), "p" | "trigger") { d.parents.get(idx).copied().flatten() } else { Some(idx) };
+    if let Some(at) = in_box.and_then(|b| boxes::box_at(&d.source, &d.nodes, &d.parents, b)) {
+        return Some(FormKind::Box(at));
     }
     let top = d.nodes[0].children.contains(&idx);
     match n.tag.as_str() {
@@ -191,7 +200,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | None => {}
         }
         view! { <pre class="code">{highlighted(&reindent(&d.source, n.start, n.end))}</pre> }.into_any()
     };
@@ -255,6 +264,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Block(at, _)), Mode::Form) => view! { <BlockForm tab at/> }.into_any(),
                     (Some(FormKind::Table(at)), Mode::Form) => view! { <TableForm tab at/> }.into_any(),
                     (Some(FormKind::List(at)), Mode::Form) => view! { <ListForm tab at/> }.into_any(),
+                    (Some(FormKind::Box(at)), Mode::Form) => view! { <BoxForm tab at/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

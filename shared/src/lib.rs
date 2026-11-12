@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod block;
+pub mod boxes;
 pub mod chapter;
 pub mod cover;
 pub mod display;
@@ -236,6 +237,7 @@ pub enum Change {
     Block { edit: block::BlockEdit },
     Table { edit: table::TableEdit },
     List { edit: list::ListEdit },
+    Box { edit: boxes::BoxEdit },
 }
 
 impl Change {
@@ -247,6 +249,7 @@ impl Change {
             Change::Block { edit } => block::plan(source, edit),
             Change::Table { edit } => table::plan(source, edit),
             Change::List { edit } => list::plan(source, edit),
+            Change::Box { edit } => boxes::plan(source, edit),
         }
     }
 }
