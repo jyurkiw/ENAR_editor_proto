@@ -230,6 +230,18 @@ fn p_inner(source: &str, n: &StructNode, text: &str) -> String {
     format!("{nl}{}{nl}{ind}", body.join(nl))
 }
 
+/// Replaces a mixed-content element's contents (raw XML), laid out like before; opens
+/// up `<x/>`.
+pub fn set_inner(source: &str, n: &StructNode, text: &str) -> Option<Splice> {
+    match edit::inner_span(source, n) {
+        Some((a, b)) => Some(Splice { start: a, end: b, text: p_inner(source, n, text) }),
+        None => {
+            let t = edit::start_tag(source, n.start)?;
+            Some(Splice { start: t.close_at, end: t.end, text: format!(">{}</{}>", text.trim(), n.tag) })
+        }
+    }
+}
+
 fn header_splices(source: &str, nodes: &[StructNode], ci: usize, h: &Header) -> Result<Vec<Splice>, String> {
     let c = &nodes[ci];
     let (old, _) = read(source, nodes, ci);
@@ -320,15 +332,7 @@ pub fn plan(source: &str, e: &BlockEdit) -> Result<String, String> {
             if p.tag != "p" {
                 return Err("that block isn't a paragraph".into());
             }
-            let (a, b) = match edit::inner_span(source, p) {
-                Some(span) => span,
-                None => {
-                    // <p/>: open it up.
-                    let t = edit::start_tag(source, p.start).ok_or("bad <p>")?;
-                    return edit::apply(source, &[Splice { start: t.close_at, end: t.end, text: format!(">{}</p>", text.trim()) }]);
-                }
-            };
-            edit::apply(source, &[Splice { start: a, end: b, text: p_inner(source, p, text) }])
+            edit::apply(source, &[set_inner(source, p, text).ok_or("bad <p>")?])
         }
         BlockEdit::AddP { after, .. } => {
             let anchor = match after {

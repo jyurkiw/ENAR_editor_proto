@@ -608,9 +608,9 @@ mod real {
         let cur = run(&cur, TableEdit::AddHeader { at: at("tbl-ring"), col: 1, text: "DC".into() });
         let cur = run(&cur, TableEdit::SetHeader { at: at("tbl-ring"), col: 1, text: "DC & Notes".into() });
         let cur = run(&cur, TableEdit::SwapHeaders { at: at("tbl-ring"), col: 0 });
-        let v = view(&cur, "tbl-ring");
-        assert_eq!(v.headers, ["DC & Notes", "Result", "Outcome"]);
-        assert!(v.body.iter().all(|(_, n)| *n == 3));
+        let ring = view(&cur, "tbl-ring");
+        assert_eq!(ring.headers, ["DC & Notes", "Result", "Outcome"]);
+        assert!(ring.body.iter().all(|r| r.cells.len() == 3));
         let cur = run(&cur, TableEdit::DeleteHeader { at: at("tbl-ring"), col: 0 });
         assert_eq!(view(&cur, "tbl-ring").headers, ["Result", "Outcome"]);
         // Every table in the file reads, and the footer-bearing one keeps its footer rows aligned.
@@ -619,7 +619,23 @@ mod real {
             println!("{id}: {} headers, {} rows, footer {}", v.headers.len(), v.body.len(), v.footer.len());
         }
         let cur = run(&cur, TableEdit::AddHeader { at: at("tbl-xp"), col: 0, text: "#".into() });
-        let v = view(&cur, "tbl-xp");
-        assert!(v.body.iter().chain(&v.footer).all(|(_, n)| *n == v.headers.len()), "{v:?}");
+        let xp = view(&cur, "tbl-xp");
+        assert!(xp.body.iter().chain(&xp.footer).all(|r| r.cells.len() == xp.headers.len()), "{xp:?}");
+
+        // Cells and rows.
+        use shared::table::Part;
+        let cur = run(&cur, TableEdit::SetCell { at: at("tbl-ring"), part: Part::Body, row: 0, col: 1, text: "Unnoticed, <i>for now</i>.".into() });
+        assert_eq!(view(&cur, "tbl-ring").body[0].cells[1].text, "Unnoticed, <i>for now</i>.");
+        let cur = run(&cur, TableEdit::AddRow { at: at("tbl-ring"), part: Part::Body, after: Some(0) });
+        let cur = run(&cur, TableEdit::SetCell { at: at("tbl-ring"), part: Part::Body, row: 1, col: 0, text: "12".into() });
+        let cur = run(&cur, TableEdit::SwapRows { at: at("tbl-ring"), part: Part::Body, row: 0 });
+        let tv = view(&cur, "tbl-ring");
+        assert_eq!(tv.body[0].cells[0].text, "12");
+        assert_eq!(tv.body.len(), 4);
+        let cur = run(&cur, TableEdit::DeleteRow { at: at("tbl-ring"), part: Part::Body, row: 0 });
+        assert_eq!(view(&cur, "tbl-ring").body.len(), 3);
+        // A cell that isn't well-formed is refused.
+        let r = apply_edit(&path_str(&file), &cur, &p, &v, |s| table::plan(s, &TableEdit::SetCell { at: at("tbl-ring"), part: Part::Body, row: 0, col: 0, text: "<b>open".into() })).unwrap();
+        assert!(matches!(r, ApplyResult::Invalid { .. }));
     }
 }

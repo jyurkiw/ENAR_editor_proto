@@ -377,3 +377,24 @@ button.small { font-size: 11px; padding: 1px 8px; }
 .tr-row { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
 .tr-text { font: 12px/1.45 var(--mono); background: var(--panel-2); color: var(--muted); }
 .tr-row.mismatch .tr-text { border-color: var(--bad); }
+
+/* Table rows and cells */
+.row-card { border: 1px solid var(--border); border-radius: 6px; background: var(--code-bg); margin: 8px 0; }
+.row-card.mismatch { border-color: var(--bad); }
+.row-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--panel-2); }
+.row-name { font-weight: 600; font-size: 12px; color: var(--muted); }
+.cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; padding: 8px; }
+.cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cell-label { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.cell-name { font-size: 11px; font-weight: 600; color: var(--t-value); text-transform: uppercase; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell.extra .cell-name { color: var(--bad); }
+.span-badge { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+.cell-text {
+  field-sizing: content; min-height: 2.2em; resize: vertical; box-sizing: border-box; width: 100%;
+  font: 13px/1.45 var(--sans); color: var(--text); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
+}
+.cell-text:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.cell.dirty .cell-text { border-color: var(--warn); }
+.cell.failed .cell-text { border-color: var(--bad); background: var(--bad-bg); }
+.cell-missing { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-style: italic; border: 1px dashed var(--border); border-radius: 4px; padding: 5px 8px; }

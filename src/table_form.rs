@@ -7,7 +7,7 @@
 use leptos::ev::{FocusEvent, KeyboardEvent, MouseEvent};
 use leptos::html;
 use leptos::prelude::*;
-use shared::table::{self, TableAt, TableEdit, TableView};
+use shared::table::{self, Part, TableAt, TableEdit, TableView};
 use shared::Change;
 use wasm_bindgen::JsCast;
 
@@ -188,25 +188,180 @@ fn HeaderRow(tab: DocTab, at: StoredValue<TableAt>, col: usize, view: Memo<Optio
     }
 }
 
-fn rows_view(rows: Vec<(String, usize)>, headers: Option<usize>, label: &'static str) -> impl IntoView {
-    rows.into_iter()
-        .enumerate()
-        .map(|(i, (xml, n))| {
-            let mismatch = headers.is_some_and(|h| h != n);
-            let note = match headers {
-                Some(h) if h != n => format!("{n} cell(s), {h} header(s)"),
-                _ => format!("{n} cell(s)"),
-            };
-            let lines = xml.lines().count().max(1);
-            view! {
-                <div class="tr-row" class:mismatch=mismatch>
-                    <span class="th-num">{format!("{label}{}", i + 1)}</span>
-                    <textarea class="tr-text" readonly rows=lines prop:value=xml></textarea>
-                    <span class="th-cells" class:bad=mismatch>{note}</span>
-                </div>
-            }
+#[component]
+fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>, part: Part, row: usize, col: usize) -> impl IntoView {
+    let cell = Memo::new(move |_| {
+        view.with(|v| {
+            let v = v.as_ref()?;
+            let rows = if part == Part::Body { &v.body } else { &v.footer };
+            rows.get(row)?.cells.get(col).cloned()
         })
-        .collect_view()
+    });
+    let n_cells = Memo::new(move |_| {
+        view.with(|v| v.as_ref().and_then(|v| (if part == Part::Body { &v.body } else { &v.footer }).get(row).map(|r| r.cells.len())).unwrap_or(0))
+    });
+    let label = move || {
+        view.with(|v| v.as_ref().and_then(|v| v.headers.get(col).cloned()))
+            .map(|h| if h.trim().is_empty() { format!("(column {})", col + 1) } else { h })
+            .unwrap_or_else(|| format!("(no header) {}", col + 1))
+    };
+    let no_header = move || view.with(|v| v.as_ref().is_some_and(|v| v.has_header && col >= v.headers.len()));
+    let base = move || cell.get().map(|c| c.text).unwrap_or_default();
+    let key = move || (at.get_value(), part, row, col);
+    let draft = move || {
+        let b = base();
+        tab.cell_drafts.with(|d| d.get(&key()).filter(|(orig, _)| *orig == b).map(|(_, t)| t.clone()))
+    };
+    let text = move || draft().unwrap_or_else(base);
+    let dirty = move || draft().is_some();
+    let failed = move || tab.cell_failed.with(|f| f.contains(&key()));
+    let busy = move || tab.applying.get();
+    let el = NodeRef::<html::Div>::new();
+    let set = move |v: String| {
+        let b = base();
+        let k = key();
+        tab.cell_drafts.update(|d| {
+            if v == b {
+                d.remove(&k);
+            } else {
+                d.insert(k, (b, v));
+            }
+        });
+    };
+    let do_apply = move || {
+        if let Some(t) = draft() {
+            apply(tab, Change::Table { edit: TableEdit::SetCell { at: at.get_value(), part, row, col, text: t } });
+        }
+    };
+    let revert = move || {
+        let k = key();
+        tab.cell_drafts.update(|d| {
+            d.remove(&k);
+        });
+        tab.cell_failed.update(|f| {
+            f.remove(&k);
+        });
+    };
+    let spans = move || {
+        cell.get().map(|c| {
+            let mut s = Vec::new();
+            if !c.colspan.is_empty() {
+                s.push(format!("colspan {}", c.colspan));
+            }
+            if !c.rowspan.is_empty() {
+                s.push(format!("rowspan {}", c.rowspan));
+            }
+            s.join(" · ")
+        })
+    };
+    // Whether the row has this cell: a memo, so typing doesn't re-render the field.
+    let present = Memo::new(move |_| cell.with(|c| c.is_some()));
+
+    view! {
+        <div node_ref=el class="cell" class:dirty=dirty class:failed=failed class:extra=no_header
+            on:focusout=move |ev: FocusEvent| if present.get_untracked() && !focus_stays(&ev, &el) { do_apply() }
+            on:keydown=move |ev: KeyboardEvent| {
+                if !present.get_untracked() { return }
+                if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
+            }>
+            <div class="cell-label">
+                <span class="cell-name" title="This cell's column header">{label}</span>
+                {move || spans().filter(|s| !s.is_empty()).map(|s| view! { <span class="span-badge">{s}</span> })}
+                <span class="spacer"></span>
+                {move || failed().then(|| view! { <span class="state-badge bad">"refused"</span> })}
+                {move || (present.get() && dirty()).then(|| view! {
+                    <button class="small" disabled=busy on:click=move |_| revert()>"Revert"</button>
+                    <button class="small primary" disabled=busy on:click=move |_| do_apply()>"Apply"</button>
+                })}
+            </div>
+            {move || if present.get() {
+                view! {
+                    <textarea class="cell-text" rows=1 placeholder="(empty)"
+                        prop:value=text on:input=move |ev| set(event_target_value(&ev))></textarea>
+                }.into_any()
+            } else {
+                // The row is short of the headers: only the first missing slot offers a cell.
+                let first_missing = col == n_cells.get_untracked();
+                view! {
+                    <div class="cell-missing">
+                        "No cell"
+                        {first_missing.then(|| view! {
+                            <button class="small" disabled=busy on:click=move |_| {
+                                apply(tab, Change::Table { edit: TableEdit::AddCell { at: at.get_value(), part, row } })
+                            }>"+ cell"</button>
+                        })}
+                    </div>
+                }.into_any()
+            }}
+        </div>
+    }
+}
+
+fn cell_count(v: &TableView, part: Part, row: usize) -> usize {
+    (if part == Part::Body { &v.body } else { &v.footer }).get(row).map(|r| r.cells.len()).unwrap_or(0)
+}
+
+#[component]
+fn RowCard(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>, part: Part, row: usize, count: Memo<usize>) -> impl IntoView {
+    let busy = move || tab.applying.get();
+    let cols = Memo::new(move |_| view.with(|v| v.as_ref().map(|v| cell_count(v, part, row).max(v.headers.len())).unwrap_or(0)));
+    let mismatch = move || view.with(|v| v.as_ref().is_some_and(|v| v.has_header && cell_count(v, part, row) != v.headers.len()));
+    let label = if part == Part::Body { format!("Row {}", row + 1) } else { format!("Footer row {}", row + 1) };
+    let only_body = move || part == Part::Body && count.get() == 1;
+    let delete = move |_: MouseEvent| {
+        if part == Part::Body && count.get_untracked() == 1 {
+            return;
+        }
+        let msg = if part == Part::Footer && count.get_untracked() == 1 {
+            "Delete the only footer row? The <footer> goes with it.".to_string()
+        } else if part == Part::Body {
+            format!("Delete row {}?", row + 1)
+        } else {
+            format!("Delete footer row {}?", row + 1)
+        };
+        if confirm(&msg) {
+            apply(tab, Change::Table { edit: TableEdit::DeleteRow { at: at.get_value(), part, row } });
+        }
+    };
+    let swap = move |r: usize| apply(tab, Change::Table { edit: TableEdit::SwapRows { at: at.get_value(), part, row: r } });
+    let add_below = move |_: MouseEvent| apply(tab, Change::Table { edit: TableEdit::AddRow { at: at.get_value(), part, after: Some(row) } });
+    view! {
+        <div class="row-card" class:mismatch=mismatch>
+            <div class="row-head">
+                <span class="row-name">{label}</span>
+                {move || mismatch().then(|| view! { <span class="hint bad">"cell count doesn't match the headers"</span> })}
+                <span class="spacer"></span>
+                <button class="icon-btn" title="Move up" disabled=move || { row == 0 || busy() } on:click=move |_| swap(row - 1)>"↑"</button>
+                <button class="icon-btn" title="Move down" disabled=move || { row + 1 >= count.get() || busy() } on:click=move |_| swap(row)>"↓"</button>
+                <button class="small" title="Insert an empty row below" disabled=busy on:click=add_below>"+ row below"</button>
+                <button class="icon-btn danger" disabled=move || { busy() || only_body() }
+                    title=move || if only_body() { "A table needs at least one body row" } else { "Delete row" }
+                    on:click=delete>"✕"</button>
+            </div>
+            <div class="cells">
+                <For each=move || 0..cols.get() key=|c| *c let:col>
+                    <CellField tab at view part row col/>
+                </For>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn RowsPart(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>, part: Part) -> impl IntoView {
+    let count = Memo::new(move |_| view.with(|v| v.as_ref().map(|v| if part == Part::Body { v.body.len() } else { v.footer.len() }).unwrap_or(0)));
+    let busy = move || tab.applying.get();
+    let add_first = move |_: MouseEvent| apply(tab, Change::Table { edit: TableEdit::AddRow { at: at.get_value(), part, after: None } });
+    view! {
+        <div class="th-tools">
+            <button class="small" disabled=busy on:click=add_first>
+                {if part == Part::Body { "+ Row at the start" } else { "+ Footer row at the start" }}
+            </button>
+        </div>
+        <For each=move || 0..count.get() key=|r| *r let:row>
+            <RowCard tab at view part row count/>
+        </For>
+    }
 }
 
 #[component]
@@ -254,23 +409,21 @@ pub fn TableForm(tab: DocTab, at: TableAt) -> impl IntoView {
     // Only presence and "has a header" re-render the frame, so focus survives applies.
     let exists = Memo::new(move |_| view.with(|v| v.is_some()));
     let has_header = Memo::new(move |_| view.with(|v| v.as_ref().is_some_and(|v| v.has_header)));
+    let has_footer = Memo::new(move |_| view.with(|v| v.as_ref().is_some_and(|v| v.has_footer)));
+    let n_body = Memo::new(move |_| view.with(|v| v.as_ref().map(|v| v.body.len()).unwrap_or(0)));
+    let n_footer = Memo::new(move |_| view.with(|v| v.as_ref().map(|v| v.footer.len()).unwrap_or(0)));
     let rows = move || {
-        view.get().map(|v| {
-            let headers = v.has_header.then_some(v.headers.len());
-            let n_body = v.body.len();
-            let footer = v.footer.clone();
-            view! {
-                <div class="table-card-title">
-                    {format!("Rows ({n_body})")}
-                    <span class="hint">"Read-only for now: each <tr>'s cells as XML."</span>
-                </div>
-                {rows_view(v.body, headers, "")}
-                {v.has_footer.then(|| view! {
-                    <div class="table-card-subtitle">{format!("Footer rows ({})", footer.len())}</div>
-                    {rows_view(footer, headers, "F")}
-                })}
-            }
-        })
+        view! {
+            <div class="table-card-title">
+                {move || format!("Rows ({})", n_body.get())}
+                <span class="hint">"One field per cell, labelled with its column's header. Cells follow their header when headers move."</span>
+            </div>
+            <RowsPart tab at view part=Part::Body/>
+            <Show when=move || has_footer.get()>
+                <div class="table-card-subtitle">{move || format!("Footer rows ({})", n_footer.get())}</div>
+                <RowsPart tab at view part=Part::Footer/>
+            </Show>
+        }
     };
 
     view! {

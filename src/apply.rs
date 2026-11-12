@@ -82,6 +82,12 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                         f.insert(k.clone());
                     });
                 }
+                if let Change::Table { edit: TableEdit::SetCell { at, part, row, col, .. } } = &change {
+                    let k = (at.clone(), *part, *row, *col);
+                    tab.cell_failed.update(|f| {
+                        f.insert(k);
+                    });
+                }
                 if let Change::Table { edit: TableEdit::SetHeader { at, col, .. } } = &change {
                     let k = (at.clone(), *col);
                     tab.th_failed.update(|f| {
@@ -147,6 +153,27 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
             }
         },
         Change::Table { edit } => match edit {
+            TableEdit::SetCell { at, part, row, col, .. } => {
+                let k = (at.clone(), *part, *row, *col);
+                tab.cell_drafts.update(|d| {
+                    d.remove(&k);
+                });
+                tab.cell_failed.update(|f| {
+                    f.remove(&k);
+                });
+            }
+            TableEdit::AddCell { .. } => {}
+            TableEdit::AddRow { at, part, after } => {
+                // Rows from here on shifted.
+                let (at, part, from) = (at.clone(), *part, after.map_or(0, |a| a + 1));
+                tab.cell_drafts.update(|d| d.retain(|(a, p, r, _), _| *a != at || *p != part || *r < from));
+                tab.cell_failed.update(|f| f.retain(|(a, p, r, _)| *a != at || *p != part || *r < from));
+            }
+            TableEdit::DeleteRow { at, part, row } | TableEdit::SwapRows { at, part, row } => {
+                let (at, part, from) = (at.clone(), *part, *row);
+                tab.cell_drafts.update(|d| d.retain(|(a, p, r, _), _| *a != at || *p != part || *r < from));
+                tab.cell_failed.update(|f| f.retain(|(a, p, r, _)| *a != at || *p != part || *r < from));
+            }
             TableEdit::Info { at, .. } => {
                 let at = at.clone();
                 tab.table_drafts.update(|d| {
@@ -167,6 +194,9 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 let (at, col) = (at.clone(), *col);
                 tab.th_drafts.update(|d| d.retain(|(a, c), _| *a != at || *c < col));
                 tab.th_failed.update(|f| f.retain(|(a, c)| *a != at || *c < col));
+                // So did the cells in those columns.
+                tab.cell_drafts.update(|d| d.retain(|(a, _, _, c), _| *a != at || *c < col));
+                tab.cell_failed.update(|f| f.retain(|(a, _, _, c)| *a != at || *c < col));
                 if matches!(edit, TableEdit::AddHeader { .. }) {
                     tab.th_focus.set(Some(col));
                 }
