@@ -14,6 +14,7 @@ mod reference_form;
 mod files;
 mod state;
 mod structure;
+mod table_form;
 mod viewer;
 
 use leptos::prelude::*;

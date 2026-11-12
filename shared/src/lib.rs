@@ -9,6 +9,7 @@ pub mod cover;
 pub mod display;
 pub mod edit;
 pub mod reference;
+pub mod table;
 pub mod values;
 pub mod xml;
 
@@ -231,6 +232,7 @@ pub enum Change {
     Chapter { edit: chapter::ChapterEdit },
     Reference { edit: reference::RefEdit },
     Block { edit: block::BlockEdit },
+    Table { edit: table::TableEdit },
 }
 
 impl Change {
@@ -240,6 +242,7 @@ impl Change {
             Change::Chapter { edit } => chapter::plan(source, edit),
             Change::Reference { edit } => reference::plan(source, edit),
             Change::Block { edit } => block::plan(source, edit),
+            Change::Table { edit } => table::plan(source, edit),
         }
     }
 }

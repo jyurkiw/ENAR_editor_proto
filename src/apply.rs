@@ -7,6 +7,7 @@ use leptos::task::spawn_local;
 use shared::chapter::{self, ChapterEdit};
 use shared::block::{self, BlockEdit, Container};
 use shared::reference::RefEdit;
+use shared::table::{self, TableAt, TableEdit};
 use shared::{ApplyResult, Change};
 
 use crate::api;
@@ -41,6 +42,13 @@ fn selection(change: &Change) -> impl Fn(&DocData) -> Option<usize> + 'static {
             };
             block::find(&d.source, &d.nodes, &at)
         }
+        Change::Table { edit } => {
+            let at = match edit {
+                TableEdit::Info { at, id, .. } => TableAt { id: id.clone(), nth: at.nth },
+                other => other.at().clone(),
+            };
+            table::find(&d.source, &d.nodes, &at)
+        }
     }
 }
 
@@ -72,6 +80,12 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                 if let Some(k) = &card {
                     tab.ref_failed.update(|f| {
                         f.insert(k.clone());
+                    });
+                }
+                if let Change::Table { edit: TableEdit::SetHeader { at, col, .. } } = &change {
+                    let k = (at.clone(), *col);
+                    tab.th_failed.update(|f| {
+                        f.insert(k);
                     });
                 }
                 if let Change::Block { edit: BlockEdit::SetP { at, child, .. } } = &change {
@@ -130,6 +144,32 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 let (at, child) = (at.clone(), *child);
                 tab.p_drafts.update(|d| d.retain(|(a, c), _| *a != at || *c < child));
                 tab.p_failed.update(|f| f.retain(|(a, c)| *a != at || *c < child));
+            }
+        },
+        Change::Table { edit } => match edit {
+            TableEdit::Info { at, .. } => {
+                let at = at.clone();
+                tab.table_drafts.update(|d| {
+                    d.remove(&at);
+                });
+            }
+            TableEdit::SetHeader { at, col, .. } => {
+                let k = (at.clone(), *col);
+                tab.th_drafts.update(|d| {
+                    d.remove(&k);
+                });
+                tab.th_failed.update(|f| {
+                    f.remove(&k);
+                });
+            }
+            TableEdit::AddHeader { at, col, .. } | TableEdit::DeleteHeader { at, col } | TableEdit::SwapHeaders { at, col } => {
+                // Columns from here on shifted: their drafts no longer match.
+                let (at, col) = (at.clone(), *col);
+                tab.th_drafts.update(|d| d.retain(|(a, c), _| *a != at || *c < col));
+                tab.th_failed.update(|f| f.retain(|(a, c)| *a != at || *c < col));
+                if matches!(edit, TableEdit::AddHeader { .. }) {
+                    tab.th_focus.set(Some(col));
+                }
             }
         },
         Change::Reference { edit } => {

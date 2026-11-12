@@ -15,7 +15,10 @@ use shared::Change;
 use crate::apply::{apply, ref_key};
 use shared::block::{self as blocks, Container};
 
+use shared::table::{self as tables, TableAt};
+
 use crate::block_form::BlockForm;
+use crate::table_form::TableForm;
 use crate::chapter_form::ChapterForm;
 use crate::reference_form::ReferenceForm;
 use crate::cover_form::{apply_model, CoverForm};
@@ -31,10 +34,20 @@ enum FormKind {
     Reference(Option<String>),
     /// A section or sidebar; `Some(child)` when one of its children was picked.
     Block(Container, Option<usize>),
+    /// A table, wherever it is (a chapter, a sidebar, a sidebarLink).
+    Table(TableAt),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     let n = d.nodes.get(idx)?;
+    // A table, or anything inside one: the table editor.
+    let mut cur = Some(idx);
+    while let Some(i) = cur {
+        if d.nodes[i].tag == "table" {
+            return tables::table_at(&d.source, &d.nodes, i).map(FormKind::Table);
+        }
+        cur = d.parents.get(i).copied().flatten();
+    }
     let top = d.nodes[0].children.contains(&idx);
     match n.tag.as_str() {
         "cover" if top => Some(FormKind::Cover),
@@ -169,7 +182,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | None => {}
         }
         view! { <pre class="code">{highlighted(&reindent(&d.source, n.start, n.end))}</pre> }.into_any()
     };
@@ -231,6 +244,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Chapter(name)), Mode::Form) => view! { <ChapterForm tab name/> }.into_any(),
                     (Some(FormKind::Reference(_)), Mode::Form) => view! { <ReferenceForm tab/> }.into_any(),
                     (Some(FormKind::Block(at, _)), Mode::Form) => view! { <BlockForm tab at/> }.into_any(),
+                    (Some(FormKind::Table(at)), Mode::Form) => view! { <TableForm tab at/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

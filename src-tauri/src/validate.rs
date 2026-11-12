@@ -580,4 +580,46 @@ mod real {
         let cur = saved(run(&cur, BlockEdit::Header { at: side, header: block::Header { key: format!("{id}-x"), ..h } }), "sidebar rename");
         assert_eq!(block::sidebar_links(&xmldoc::parse(&cur).unwrap().nodes, &cur, &format!("{id}-x")), 1);
     }
+
+    #[test]
+    #[ignore]
+    fn apply_table_round_trip() {
+        use shared::table::{self, TableAt, TableEdit};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let file = t.path().join("adventure.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/adventure.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, edit: TableEdit| match apply_edit(&path_str(&file), expected, &p, &v, |s| table::plan(s, &edit)).unwrap() {
+            ApplyResult::Saved { doc } => doc.source,
+            other => panic!("{edit:?} refused: {other:?}"),
+        };
+        let view = |s: &str, id: &str| {
+            let nodes = xmldoc::parse(s).unwrap().nodes;
+            table::read(s, &nodes, table::find(s, &nodes, &TableAt { id: id.into(), nth: 0 }).unwrap())
+        };
+        let at = |id: &str| TableAt { id: id.into(), nth: 0 };
+        let nodes = xmldoc::parse(&src).unwrap().nodes;
+        let links = table::links(&src, &nodes, "tbl-lifting-ring");
+        println!("tbl-lifting-ring: {links} tableLink(s); {:?}", view(&src, "tbl-lifting-ring").headers);
+
+        let cur = run(&src, TableEdit::Info { at: at("tbl-lifting-ring"), id: "tbl-ring".into(), title: "Lifting the Ring".into() });
+        assert_eq!(table::links(&cur, &xmldoc::parse(&cur).unwrap().nodes, "tbl-ring"), links);
+        let cur = run(&cur, TableEdit::AddHeader { at: at("tbl-ring"), col: 1, text: "DC".into() });
+        let cur = run(&cur, TableEdit::SetHeader { at: at("tbl-ring"), col: 1, text: "DC & Notes".into() });
+        let cur = run(&cur, TableEdit::SwapHeaders { at: at("tbl-ring"), col: 0 });
+        let v = view(&cur, "tbl-ring");
+        assert_eq!(v.headers, ["DC & Notes", "Result", "Outcome"]);
+        assert!(v.body.iter().all(|(_, n)| *n == 3));
+        let cur = run(&cur, TableEdit::DeleteHeader { at: at("tbl-ring"), col: 0 });
+        assert_eq!(view(&cur, "tbl-ring").headers, ["Result", "Outcome"]);
+        // Every table in the file reads, and the footer-bearing one keeps its footer rows aligned.
+        for id in ["tbl-combatants", "tbl-gnoll-pouch", "tbl-parley", "tbl-xp", "tbl-treasure"] {
+            let v = view(&cur, id);
+            println!("{id}: {} headers, {} rows, footer {}", v.headers.len(), v.body.len(), v.footer.len());
+        }
+        let cur = run(&cur, TableEdit::AddHeader { at: at("tbl-xp"), col: 0, text: "#".into() });
+        let v = view(&cur, "tbl-xp");
+        assert!(v.body.iter().chain(&v.footer).all(|(_, n)| *n == v.headers.len()), "{v:?}");
+    }
 }

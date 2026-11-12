@@ -350,3 +350,30 @@ button.small { font-size: 11px; padding: 1px 8px; }
 .ro-source { margin: 0 10px 6px; border-radius: 4px; max-height: 320px; }
 .block-main.readonly .hint { margin: 0 10px 8px; }
 .body-end { height: 18px; }
+
+/* Table editor */
+.table-editor { padding: 14px 20px 48px; max-width: 900px; display: flex; flex-direction: column; gap: 14px; }
+.table-card { border: 1px solid var(--border); border-radius: 6px; background: var(--panel); padding: 8px 14px 12px; }
+.table-card.dirty { border-color: var(--warn); }
+.table-card-title { display: flex; align-items: baseline; gap: 12px; font-weight: 600; color: var(--t-value); margin-bottom: 6px; flex-wrap: wrap; }
+.table-card-title .hint { font-weight: 400; }
+.table-card-subtitle { font-weight: 600; color: var(--muted); margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.wide-field { flex: 2 !important; }
+.th-tools { display: flex; gap: 6px; margin: 4px 0; }
+.th-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--panel-2); }
+.th-row:last-of-type { border-bottom: none; }
+.th-num { flex: none; width: 28px; text-align: right; padding-top: 6px; color: var(--muted); font: 12px var(--mono); }
+.th-text, .tr-text {
+  flex: 1; min-width: 0; field-sizing: content; resize: vertical; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; color: var(--text);
+}
+.th-text { font: 600 13px/1.4 var(--sans); background: var(--code-bg); min-height: 2em; }
+.th-text:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.th-row.dirty .th-text { border-color: var(--warn); }
+.th-row.failed .th-text { border-color: var(--bad); background: var(--bad-bg); }
+.th-cells { flex: none; width: 80px; padding-top: 6px; font-size: 11px; color: var(--muted); }
+.th-cells.bad { color: var(--bad); }
+.th-buttons { flex: none; display: flex; gap: 3px; align-items: center; padding-top: 2px; }
+.tr-row { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+.tr-text { font: 12px/1.45 var(--mono); background: var(--panel-2); color: var(--muted); }
+.tr-row.mismatch .tr-text { border-color: var(--bad); }

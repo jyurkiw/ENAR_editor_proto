@@ -9,6 +9,7 @@ use shared::chapter::ChapterModel;
 use shared::cover::CoverModel;
 use shared::block::{Container, Header};
 use shared::reference::RefEntry;
+use shared::table::TableAt;
 use shared::Change;
 use shared::{AppError, FsEntry, OpenProject, OpenedDoc, Problem, ProjectInfo};
 
@@ -119,6 +120,13 @@ pub struct DocTab {
     pub p_drafts: RwSignal<HashMap<(Container, usize), (String, String)>>,
     pub p_failed: RwSignal<HashSet<(Container, usize)>>,
     pub block_focus: RwSignal<Option<usize>>,
+    /// Table forms: id/title drafts, header drafts by (table, column) as (the text they
+    /// were made from, the new text), headers whose last apply was refused, and the
+    /// header to focus.
+    pub table_drafts: RwSignal<HashMap<TableAt, (String, String)>>,
+    pub th_drafts: RwSignal<HashMap<(TableAt, usize), (String, String)>>,
+    pub th_failed: RwSignal<HashSet<(TableAt, usize)>>,
+    pub th_focus: RwSignal<Option<usize>>,
     /// An apply is running.
     pub applying: RwSignal<bool>,
     /// Changes waiting for the running apply to finish.
@@ -148,6 +156,10 @@ impl DocTab {
             p_drafts: RwSignal::new(HashMap::new()),
             p_failed: RwSignal::new(HashSet::new()),
             block_focus: RwSignal::new(None),
+            table_drafts: RwSignal::new(HashMap::new()),
+            th_drafts: RwSignal::new(HashMap::new()),
+            th_failed: RwSignal::new(HashSet::new()),
+            th_focus: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),
             problems: RwSignal::new(Vec::new()),

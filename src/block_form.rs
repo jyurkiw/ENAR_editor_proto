@@ -289,6 +289,17 @@ fn BlockRow(
                             <code class="ro-el">{format!("<{}>", b.tag)}</code>
                             <span class="ro-summary">{b.text.clone()}</span>
                             <span class="spacer"></span>
+                            {(b.tag == "table").then(|| view! {
+                                <button class="small" title="Open the table editor" on:click=move |ev: MouseEvent| {
+                                    ev.stop_propagation();
+                                    let d = tab.doc_untracked();
+                                    if let Some(ci) = block::find(&d.source, &d.nodes, &at.get_value()) {
+                                        if let Some(k) = d.nodes[ci].children.get(child()) {
+                                            tab.reveal(*k);
+                                        }
+                                    }
+                                }>"Open"</button>
+                            })}
                             <button class="small" title="Insert an empty paragraph below" disabled=busy on:click=move |ev: MouseEvent| {
                                 ev.stop_propagation();
                                 add_after(ev);
