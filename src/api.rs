@@ -2,7 +2,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use shared::{AppError, ApplyResult, Change, FsEntry, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
+use shared::{AppError, ApplyResult, Change, FsEntry, NewMonsterFile, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -61,6 +61,14 @@ pub async fn create_supplement(req: &NewSupplement) -> Result<String, AppError> 
         req: &'a NewSupplement,
     }
     invoke("create_supplement", &A { req }).await
+}
+
+pub async fn create_monster_file(req: &NewMonsterFile) -> Result<String, AppError> {
+    #[derive(Serialize)]
+    struct A<'a> {
+        req: &'a NewMonsterFile,
+    }
+    invoke("create_monster_file", &A { req }).await
 }
 
 pub async fn open_file(path: &str) -> Result<OpenedDoc, AppError> {

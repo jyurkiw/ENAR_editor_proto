@@ -10,7 +10,7 @@ mod validate;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use shared::{AppError, ApplyResult, Change, FsEntry, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
+use shared::{AppError, ApplyResult, Change, FsEntry, NewMonsterFile, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -84,6 +84,12 @@ async fn list_dir(path: String) -> Result<Vec<FsEntry>, AppError> {
 fn create_supplement(req: NewSupplement, state: State<'_, AppState>) -> Result<String, AppError> {
     let p = state.project()?;
     fsops::create_supplement(&req, &p.root, &p.schemas_dir)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn create_monster_file(req: NewMonsterFile, state: State<'_, AppState>) -> Result<String, AppError> {
+    let p = state.project()?;
+    fsops::create_monster_file(&req, &p.root, &p.schemas_dir)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -164,6 +170,7 @@ pub fn run() {
             configure_project,
             list_dir,
             create_supplement,
+            create_monster_file,
             open_file,
             apply_change,
             ref_index,

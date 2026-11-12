@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use shared::chapter::{self, ChapterEdit, KINDS};
-use shared::{main_file_for_type, Change, NewSupplement, SUPPLEMENT_TYPES};
+use shared::{main_file_for_type, Change, NewMonsterFile, NewSupplement, SUPPLEMENT_TYPES};
 
 use crate::api;
 use crate::apply::apply;
@@ -57,6 +57,7 @@ pub fn Dialogs() -> impl IntoView {
             view! { <ConfigureProject root schemas compiler problem/> }.into_any()
         }
         Some(Dialog::NewSupplement { parent }) => view! { <NewSupplementDialog parent/> }.into_any(),
+        Some(Dialog::NewMonsterFile { parent }) => view! { <NewMonsterFileDialog parent/> }.into_any(),
         Some(Dialog::NewChapter { tab }) => view! { <NewChapterDialog tab_id=tab/> }.into_any(),
     }
 }
@@ -316,6 +317,137 @@ fn NewChapterDialog(tab_id: u32) -> impl IntoView {
                 <div class="buttons">
                     <button type="button" on:click=move |_| app.dialog.set(None)>"Cancel"</button>
                     <button type="submit" class="primary" disabled=move || problem().is_some()>"Add chapter"</button>
+                </div>
+            </form>
+        </div>
+    }
+}
+
+/// "rats" -> "rats" (a stem), for the id of the first stat block.
+fn slug_of(s: &str) -> String {
+    let s: String = s.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    s.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-")
+}
+
+#[component]
+fn NewMonsterFileDialog(parent: String) -> impl IntoView {
+    let app = ctx();
+    let file = RwSignal::new(String::new());
+    let family = RwSignal::new(String::new());
+    let noun = RwSignal::new(String::new());
+    let name = RwSignal::new(String::new());
+    let id = RwSignal::new(String::new());
+    // Later fields follow earlier ones until they're edited.
+    let edited = RwSignal::new((false, false, false, false));
+    let error = RwSignal::new(None::<String>);
+    let parent = StoredValue::new(parent);
+    let rel_parent = move || {
+        let p = parent.get_value();
+        match app.project.get() {
+            Some(pr) if p.len() >= pr.root.len() && p[..pr.root.len()].eq_ignore_ascii_case(&pr.root) => {
+                format!("{}{}", pr.name, &p[pr.root.len()..])
+            }
+            _ => p,
+        }
+    };
+    let preview = move || {
+        let f = file.get();
+        let f = f.trim().trim_end_matches(".xml");
+        format!("{}\\{}.xml", rel_parent(), if f.is_empty() { "…" } else { f })
+    };
+    let follow_name = move |v: &str| {
+        if !edited.get_untracked().3 {
+            id.set(slug_of(v));
+        }
+    };
+    let create = move || {
+        let req = NewMonsterFile {
+            parent: parent.get_value(),
+            file: file.get_untracked(),
+            family: family.get_untracked(),
+            short_noun: noun.get_untracked(),
+            id: id.get_untracked(),
+            name: name.get_untracked(),
+        };
+        spawn_local(async move {
+            match api::create_monster_file(&req).await {
+                Ok(path) => {
+                    app.dialog.set(None);
+                    app.open_dirs.update(|d| {
+                        d.insert(req.parent.clone());
+                    });
+                    app.refresh_files();
+                    app.open_file(path);
+                }
+                Err(e) => error.set(Some(e.message)),
+            }
+        })
+    };
+    view! {
+        <div class="modal-backdrop">
+            <form class="modal" on:submit=move |ev| {
+                ev.prevent_default();
+                create();
+            }>
+                <h2>"New monster file"</h2>
+                <label class="field">
+                    <span class="field-label">"File name"</span>
+                    <input type="text" autofocus placeholder="giant-rats" prop:value=move || file.get()
+                        on:input=move |ev| {
+                            let v = event_target_value(&ev);
+                            let e = edited.get_untracked();
+                            if !e.0 {
+                                let fam = title_from_folder(v.trim_end_matches(".xml"));
+                                if !e.2 {
+                                    name.set(fam.clone());
+                                    follow_name(&fam);
+                                }
+                                family.set(fam);
+                            }
+                            file.set(v);
+                        }/>
+                </label>
+                <div class="field-row">
+                    <label class="field">
+                        <span class="field-label">"Family name"</span>
+                        <input type="text" placeholder="Giant Rats" prop:value=move || family.get() on:input=move |ev| {
+                            edited.update(|e| e.0 = true);
+                            family.set(event_target_value(&ev));
+                        }/>
+                        <span class="hint">"<name>: the heading over the family"</span>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">"Short noun"</span>
+                        <input type="text" placeholder="rat" prop:value=move || noun.get() on:input=move |ev| {
+                            edited.update(|e| e.1 = true);
+                            noun.set(event_target_value(&ev));
+                        }/>
+                        <span class="hint">"<shortNoun>: what <shortNounRef/> prints"</span>
+                    </label>
+                </div>
+                <div class="field-row">
+                    <label class="field">
+                        <span class="field-label">"First stat block"</span>
+                        <input type="text" placeholder="Giant Rat" prop:value=move || name.get() on:input=move |ev| {
+                            edited.update(|e| e.2 = true);
+                            let v = event_target_value(&ev);
+                            follow_name(&v);
+                            name.set(v);
+                        }/>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">"Its id"</span>
+                        <input type="text" placeholder="giant-rat" prop:value=move || id.get() on:input=move |ev| {
+                            edited.update(|e| e.3 = true);
+                            id.set(event_target_value(&ev));
+                        }/>
+                    </label>
+                </div>
+                <p class="preview">"Creates " <code>{preview}</code></p>
+                {move || error.get().map(|e| view! { <p class="problem">{e}</p> })}
+                <div class="buttons">
+                    <button type="button" on:click=move |_| app.dialog.set(None)>"Cancel"</button>
+                    <button type="submit" class="primary">"Create"</button>
                 </div>
             </form>
         </div>

@@ -9,8 +9,8 @@ use std::process::Command;
 
 use serde::Deserialize;
 use shared::{
-    AppError, ApplyResult, OpenedDoc, Problem, ProjectInfo, Validation, LEGACY_SUPPLEMENT_SCHEMA,
-    SUPPLEMENT_SCHEMA,
+    AppError, ApplyResult, DocKind, OpenedDoc, Problem, ProjectInfo, Validation, LEGACY_SUPPLEMENT_SCHEMA,
+    MONSTER_SCHEMA, SUPPLEMENT_SCHEMA,
 };
 
 use crate::project::path_str;
@@ -194,57 +194,59 @@ fn read_file(path: &str) -> Result<ReadFile, AppError> {
     Ok(ReadFile { file, name, source })
 }
 
-/// The checks that don't need Python: well-formed, <supplement> root, the supplement
-/// schema named. Returns the tree, the XSD to validate with, and warnings.
+/// The checks that don't need Python: well-formed, a `<supplement>` or `<monsters>`
+/// root, and that kind's schema named. Returns the tree, the kind, the XSD to validate
+/// with, and warnings.
 fn check_text(
     file: &Path,
     name: &str,
     source: &str,
     project: &ProjectInfo,
-) -> Result<(xmldoc::Parsed, PathBuf, Vec<String>), AppError> {
+) -> Result<(xmldoc::Parsed, DocKind, PathBuf, Vec<String>), AppError> {
     let parsed = xmldoc::parse(source).map_err(|e| AppError::new(format!("Can't open {name}. {}", e.message)))?;
     let mut warnings = Vec::new();
 
-    // 1. The root must be <supplement>.
+    // 1. The root must be <supplement> or <monsters>.
     if parsed.root_tag == "adventure" {
         return Err(AppError::with_details(
             format!("{name} is an old-style <adventure> file, not a <supplement>."),
             vec!["Convert it with shared/internal/tools/migrate_schemas.py, then open it again.".into()],
         ));
     }
-    if parsed.root_tag != "supplement" {
+    let Some(kind) = DocKind::of_root(&parsed.root_tag) else {
         let schema = parsed.schema_location.as_deref().map(file_name).unwrap_or("no schema");
         return Err(AppError::with_details(
-            format!("{name} isn't a supplement file."),
+            format!("{name} isn't a supplement or monster file."),
             vec![
                 format!("Its root element is <{}> and it names {schema}.", parsed.root_tag),
-                format!("Only files using {SUPPLEMENT_SCHEMA} can be opened."),
+                format!("Only files using {SUPPLEMENT_SCHEMA} or {MONSTER_SCHEMA} can be opened."),
             ],
         ));
-    }
+    };
+    let schema_name = kind.schema();
 
-    // 2. It must name the supplement schema.
+    // 2. It must name that kind's schema.
     let Some(loc) = parsed.schema_location.clone() else {
         return Err(AppError::with_details(
             format!("{name} doesn't name a schema."),
-            vec![format!("Its <supplement> needs xsi:noNamespaceSchemaLocation pointing at {SUPPLEMENT_SCHEMA}.")],
+            vec![format!("Its <{}> needs xsi:noNamespaceSchemaLocation pointing at {schema_name}.", kind.root())],
         ));
     };
     let loc_name = file_name(&loc);
-    if loc_name == LEGACY_SUPPLEMENT_SCHEMA {
+    if kind == DocKind::Supplement && loc_name == LEGACY_SUPPLEMENT_SCHEMA {
         warnings.push(format!("It names the old schema {LEGACY_SUPPLEMENT_SCHEMA}; validated with {SUPPLEMENT_SCHEMA}."));
-    } else if loc_name != SUPPLEMENT_SCHEMA {
+    } else if loc_name != schema_name {
         return Err(AppError::with_details(
             format!("{name} uses the wrong schema."),
-            vec![format!("It names {loc}; a supplement must use {SUPPLEMENT_SCHEMA}.")],
+            vec![format!("It names {loc}; a {} must use {schema_name}.", kind.noun())],
         ));
     }
 
     // 3. Find the schema: the named path, else the project's schemas folder (as the compiler does).
     let dir = file.parent().unwrap_or(Path::new("."));
     let named = dir.join(&loc);
-    let project_xsd = Path::new(&project.schemas_dir).join(SUPPLEMENT_SCHEMA);
-    let xsd = if loc_name == SUPPLEMENT_SCHEMA && named.is_file() {
+    let project_xsd = Path::new(&project.schemas_dir).join(schema_name);
+    let xsd = if loc_name == schema_name && named.is_file() {
         if !same_file(&named, &project_xsd) {
             warnings.push(format!(
                 "Its schema ({}) isn't the project's ({}).",
@@ -254,7 +256,7 @@ fn check_text(
         }
         named
     } else if project_xsd.is_file() {
-        if loc_name == SUPPLEMENT_SCHEMA {
+        if loc_name == schema_name {
             let fix = pathdiff::diff_paths(&project_xsd, dir).map(|p| path_str(&p).replace('\\', "/"));
             warnings.push(format!(
                 "Its schema location \"{loc}\" doesn't exist; validated with the project's schema. Write xsi:noNamespaceSchemaLocation=\"{}\".",
@@ -263,15 +265,15 @@ fn check_text(
         }
         project_xsd
     } else {
-        return Err(AppError::new(format!("Can't find {SUPPLEMENT_SCHEMA} for {name}.")));
+        return Err(AppError::new(format!("Can't find {schema_name} for {name}.")));
     };
 
-    Ok((parsed, xsd, warnings))
+    Ok((parsed, kind, xsd, warnings))
 }
 
 pub fn open_file(path: &str, project: &ProjectInfo, v: &Validator) -> Result<OpenedDoc, AppError> {
     let ReadFile { file, name, source } = read_file(path)?;
-    let (parsed, xsd, warnings) = check_text(&file, &name, &source, project)?;
+    let (parsed, kind, xsd, warnings) = check_text(&file, &name, &source, project)?;
 
     // 4. Validate against the XSD.
     let validation = match run_lxml(v, &project.compiler_dir, &file, &xsd) {
@@ -284,12 +286,12 @@ pub fn open_file(path: &str, project: &ProjectInfo, v: &Validator) -> Result<Ope
                     None => e.message,
                 })
                 .collect();
-            return Err(AppError::with_details(format!("{name} doesn't match the supplement schema."), lines));
+            return Err(AppError::with_details(format!("{name} doesn't match the {} schema.", kind.noun()), lines));
         }
         Outcome::NotRun(reason) => Validation::NotRun { reason },
     };
 
-    Ok(OpenedDoc { path: path_str(&file), name, source, nodes: parsed.nodes, validation, warnings })
+    Ok(OpenedDoc { path: path_str(&file), kind, name, source, nodes: parsed.nodes, validation, warnings })
 }
 
 
@@ -316,7 +318,7 @@ pub fn apply_edit(
         return Ok(ApplyResult::Saved { doc: open_parsed(file, name, source, project)? });
     }
     let xsd = match check_text(&file, &name, &new, project) {
-        Ok((_, xsd, _)) => xsd,
+        Ok((_, _, xsd, _)) => xsd,
         Err(e) => {
             // "Can't open x.xml. The file isn't well-formed XML (line 63): ..." reads
             // oddly for an edit; keep the reason, and lift the line out for the panel.
@@ -350,9 +352,10 @@ pub fn apply_edit(
 
 /// The doc for text that has just been validated.
 fn open_parsed(file: PathBuf, name: String, source: String, project: &ProjectInfo) -> Result<OpenedDoc, AppError> {
-    let (parsed, xsd, warnings) = check_text(&file, &name, &source, project)?;
+    let (parsed, kind, xsd, warnings) = check_text(&file, &name, &source, project)?;
     Ok(OpenedDoc {
         path: path_str(&file),
+        kind,
         name,
         source,
         nodes: parsed.nodes,
@@ -427,11 +430,98 @@ mod real {
 
     #[test]
     #[ignore]
-    fn rejects_monster_file() {
+    fn opens_monster_files_rejects_spells() {
         let (p, v) = setup();
-        let err = open_file(&format!("{REPO}/adventures/compiler-test/apprentice-wizard.xml"), &p, &v).unwrap_err();
+        let doc = open_file(&format!("{REPO}/adventures/compiler-test/apprentice-wizard.xml"), &p, &v).unwrap();
+        assert_eq!(doc.kind, DocKind::Monsters);
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        let err = open_file(&format!("{REPO}/adventures/compiler-test/thistlewoods-hearthward.xml"), &p, &v).unwrap_err();
         println!("{}\n  {}", err.message, err.details.join("\n  "));
-        assert!(err.message.contains("isn't a supplement"));
+        assert!(err.message.contains("isn't a supplement or monster file"));
+        // Every shared monster file opens and validates.
+        let dir = format!("{REPO}/shared/internal/monsters");
+        let mut n = 0;
+        for f in std::fs::read_dir(&dir).unwrap().flatten().filter(|f| f.path().extension().is_some_and(|e| e == "xml")).take(25) {
+            let doc = open_file(&path_str(&f.path()), &p, &v).unwrap_or_else(|e| panic!("{}: {} {:?}", f.path().display(), e.message, e.details));
+            assert!(matches!(doc.validation, Validation::Valid { .. }));
+            assert!(!shared::monster::monster_nodes(&doc.nodes).is_empty());
+            n += 1;
+        }
+        assert!(n > 10);
+    }
+
+    #[test]
+    #[ignore]
+    fn monster_round_trip() {
+        use shared::element::ElementEdit;
+        use shared::monster::{self, MonsterEdit};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/shared/internal/monsters")).unwrap();
+        let file = t.path().join("gnoll-warrior.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/shared/internal/monsters/gnoll-warrior.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        // The temp folder is one deeper: point the schema location one level further up.
+        let src = src.replace("../../../schemas/", "../../../../schemas/");
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, change: shared::Change| match apply_edit(&path_str(&file), expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        let doc = open_file(&path_str(&file), &p, &v).unwrap();
+        assert!(doc.warnings.is_empty(), "{:?}", doc.warnings);
+        let m = monster::monster_nodes(&doc.nodes)[0];
+        let path_of = |nodes: &[shared::StructNode], idx: usize| -> Vec<usize> {
+            fn find(nodes: &[shared::StructNode], at: usize, want: usize, path: &mut Vec<usize>) -> bool {
+                if at == want {
+                    return true;
+                }
+                for (k, c) in nodes[at].children.iter().enumerate() {
+                    path.push(k);
+                    if find(nodes, *c, want, path) {
+                        return true;
+                    }
+                    path.pop();
+                }
+                false
+            }
+            let mut p = Vec::new();
+            find(nodes, 0, idx, &mut p);
+            p
+        };
+        // Edit the heading as raw XML.
+        let h = doc.nodes[m].children.iter().copied().find(|c| doc.nodes[*c].tag == "heading").unwrap();
+        let shown = shared::display::reindent(&doc.source, doc.nodes[h].start, doc.nodes[h].end);
+        let edit = ElementEdit { path: path_of(&doc.nodes, h), tag: "heading".into(), xml: shown.replace("<armorClass>15<", "<armorClass>16<") };
+        let doc = run(&doc.source, shared::Change::Element { edit });
+        assert!(doc.source.contains("            <armorClass>16</armorClass>"), "indentation kept");
+        // A schema error is refused.
+        let h = doc.nodes[m].children.iter().copied().find(|c| doc.nodes[*c].tag == "heading").unwrap();
+        let shown = shared::display::reindent(&doc.source, doc.nodes[h].start, doc.nodes[h].end);
+        let bad = ElementEdit { path: path_of(&doc.nodes, h), tag: "heading".into(), xml: shown.replace("<armorClass>16</armorClass>", "") };
+        let r = apply_edit(&path_str(&file), &doc.source, &p, &v, |s| shared::element::plan(s, &bad)).unwrap();
+        let ApplyResult::Invalid { problems } = r else { panic!("expected a refusal") };
+        println!("missing armorClass: {problems:?}");
+        // Stat blocks: add (the skeleton validates), move, delete.
+        let doc = run(&doc.source, shared::Change::Monster { edit: MonsterEdit::Add { after: None, id: "gnoll-pup".into(), name: "Gnoll Pup".into() } });
+        let doc = run(&doc.source, shared::Change::Monster { edit: MonsterEdit::Move { id: "gnoll-pup".into(), before: Some("gnoll-warrior".into()) } });
+        let ids: Vec<_> = monster::stat_blocks(&doc.source, &doc.nodes).into_iter().map(|(i, _)| i).collect();
+        assert_eq!(ids, ["gnoll-pup", "gnoll-warrior"]);
+        let doc = run(&doc.source, shared::Change::Monster { edit: MonsterEdit::Delete { id: "gnoll-pup".into() } });
+        assert_eq!(monster::stat_blocks(&doc.source, &doc.nodes).len(), 1);
+
+        // A new monster file validates.
+        let req = shared::NewMonsterFile {
+            parent: path_str(t.path()),
+            file: "rats".into(),
+            family: "Rats".into(),
+            short_noun: "rat".into(),
+            id: "giant-rat".into(),
+            name: "Giant Rat".into(),
+        };
+        let f = crate::fsops::create_monster_file(&req, REPO, &p.schemas_dir).unwrap();
+        let doc = open_file(&f, &p, &v).unwrap();
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        assert!(doc.warnings.is_empty(), "{:?}", doc.warnings);
     }
 
     #[test]

@@ -56,7 +56,7 @@ impl DocData {
 
     /// A node's position as child indexes from the root, which survives re-parsing
     /// when edits don't add or remove its earlier siblings.
-    fn key_of(&self, idx: usize) -> Vec<usize> {
+    pub fn key_of(&self, idx: usize) -> Vec<usize> {
         let path = self.path_to(idx);
         path.windows(2)
             .map(|w| self.doc.nodes[w[0]].children.iter().position(|c| *c == w[1]).unwrap_or(0))
@@ -144,6 +144,10 @@ pub struct DocTab {
     pub box_drafts: RwSignal<HashMap<(BoxAt, Option<usize>), (String, String)>>,
     pub box_failed: RwSignal<HashSet<(BoxAt, Option<usize>)>>,
     pub box_focus: RwSignal<Option<Option<usize>>>,
+    /// The raw element editor (monster files): drafts by tree path as (the text they
+    /// were made from, the new text), and paths whose last apply was refused.
+    pub raw_drafts: RwSignal<HashMap<Vec<usize>, (String, String)>>,
+    pub raw_failed: RwSignal<HashSet<Vec<usize>>>,
     /// What the file's `<reference>` entries print, for the paragraph preview: None
     /// while loading, Err when the backend couldn't read them.
     pub refs: RwSignal<Option<Result<shared::inline::RefIndex, String>>>,
@@ -188,6 +192,8 @@ impl DocTab {
             box_drafts: RwSignal::new(HashMap::new()),
             box_failed: RwSignal::new(HashSet::new()),
             box_focus: RwSignal::new(None),
+            raw_drafts: RwSignal::new(HashMap::new()),
+            raw_failed: RwSignal::new(HashSet::new()),
             refs: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),
@@ -273,6 +279,7 @@ pub enum Dialog {
     },
     /// Create a supplement folder inside `parent`.
     NewSupplement { parent: String },
+    NewMonsterFile { parent: String },
     /// Add a chapter to the file in this tab.
     NewChapter { tab: u32 },
 }
@@ -384,8 +391,11 @@ impl AppCtx {
                     let id = dup.unwrap_or_else(|| {
                         let id = self.next_id.get_value();
                         self.next_id.set_value(id + 1);
+                        let is_supplement = doc.kind == shared::DocKind::Supplement;
                         let tab = DocTab::new(id, doc);
-                        tab.refresh_refs();
+                        if is_supplement {
+                            tab.refresh_refs();
+                        }
                         self.tabs.update(|t| t.push(tab));
                         id
                     });

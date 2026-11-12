@@ -19,6 +19,7 @@ use shared::table::{self as tables, TableAt};
 
 use crate::block_form::BlockForm;
 use crate::box_form::BoxForm;
+use crate::monster_form::MonsterForm;
 use crate::list_form::ListForm;
 use shared::boxes::{self as boxes, BoxAt};
 use crate::table_form::TableForm;
@@ -44,10 +45,15 @@ enum FormKind {
     List(ListAt),
     /// A speakAloud or dialog box in a section, or its trigger or a paragraph in it.
     Box(BoxAt),
+    /// Any element of a monster file, by its tree path and tag (the raw editor).
+    Monster(Vec<usize>, String),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     let n = d.nodes.get(idx)?;
+    if d.kind == shared::DocKind::Monsters {
+        return Some(FormKind::Monster(d.key_of(idx), n.tag.clone()));
+    }
     // A table, or anything inside one: the table editor.
     let mut cur = Some(idx);
     while let Some(i) = cur {
@@ -201,14 +207,25 @@ fn TabView(tab: DocTab) -> impl IntoView {
             }
             // Reference cards apply one at a time, so Source shows the file as written.
             Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | None => {}
+            Some(FormKind::Monster(path, tag)) => {
+                if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
+                    let p2 = path.clone();
+                    return planned_view(
+                        shared::element::plan(&d.source, &shared::element::ElementEdit { path, tag, xml }),
+                        move |_, nodes| shared::element::at_path(nodes, &p2),
+                        "Apply moves this element.",
+                    );
+                }
+            }
         }
         view! { <pre class="code">{highlighted(&reindent(&d.source, n.start, n.end))}</pre> }.into_any()
     };
 
     // The supplement has no cover: offer one when the root is selected.
+    let is_supplement = move || tab.doc().kind == shared::DocKind::Supplement;
     let no_cover = move || {
         let d = tab.doc();
-        selected.get() == 0 && cover::cover_node(&d.nodes).is_none()
+        is_supplement() && selected.get() == 0 && cover::cover_node(&d.nodes).is_none()
     };
     let add_cover = move |_| apply_model(tab, CoverModel { present: true, ..Default::default() });
     let app = ctx();
@@ -243,14 +260,14 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     <button on:click=add_cover disabled=move || tab.applying.get()>"Add a cover"</button>
                 </div>
             </Show>
-            <Show when=move || selected.get() == 0 && !refs::has_block(&tab.doc().nodes)>
+            <Show when=move || is_supplement() && selected.get() == 0 && !refs::has_block(&tab.doc().nodes)>
                 <div class="notice">
                     "This supplement has no <reference> block for monsters, spells, items, images, nouns and data."
                     <button disabled=move || tab.applying.get()
                         on:click=move |_| apply(tab, Change::Reference { edit: RefEdit::CreateBlock })>"Create <reference>"</button>
                 </div>
             </Show>
-            <Show when=move || selected.get() == 0>
+            <Show when=move || is_supplement() && selected.get() == 0>
                 <div class="notice info">
                     {move || format!("{} chapter(s).", chapter::chapter_nodes(&tab.doc().nodes).len())}
                     <button on:click=add_chapter disabled=move || tab.applying.get()>"Add chapter…"</button>
@@ -265,6 +282,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Table(at)), Mode::Form) => view! { <TableForm tab at/> }.into_any(),
                     (Some(FormKind::List(at)), Mode::Form) => view! { <ListForm tab at/> }.into_any(),
                     (Some(FormKind::Box(at)), Mode::Form) => view! { <BoxForm tab at/> }.into_any(),
+                    (Some(FormKind::Monster(path, tag)), Mode::Form) => view! { <MonsterForm tab path tag/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use shared::{main_file_for_type, is_supplement_type, AppError, FsEntry, NewSupplement, SUPPLEMENT_SCHEMA};
+use shared::{main_file_for_type, is_supplement_type, AppError, FsEntry, NewMonsterFile, NewSupplement, MONSTER_SCHEMA, SUPPLEMENT_SCHEMA};
 
 use crate::project::path_str;
 
@@ -114,9 +114,59 @@ pub fn create_supplement(req: &NewSupplement, project_root: &str, schemas_dir: &
     Ok(path_str(&file))
 }
 
+/// Creates a new monster file in `req.parent`: the family and one stat block.
+pub fn create_monster_file(req: &NewMonsterFile, project_root: &str, schemas_dir: &str) -> Result<String, AppError> {
+    let stem = req.file.trim().trim_end_matches(".xml");
+    if let Some(why) = bad_folder_name(stem) {
+        return Err(AppError::new(format!("The file name {why}")));
+    }
+    for (what, v) in [("family name", &req.family), ("short noun", &req.short_noun), ("stat block id", &req.id), ("stat block name", &req.name)] {
+        if v.trim().is_empty() {
+            return Err(AppError::new(format!("The {what} is empty")));
+        }
+    }
+    let root = dunce::canonicalize(project_root).map_err(|e| AppError::new(format!("Can't open the project: {e}")))?;
+    let parent = dunce::canonicalize(&req.parent).map_err(|e| AppError::new(format!("Can't open {}: {e}", req.parent)))?;
+    if !parent.starts_with(&root) {
+        return Err(AppError::new(format!("{} isn't inside the project", parent.display())));
+    }
+    let file = parent.join(format!("{stem}.xml"));
+    if file.exists() {
+        return Err(AppError::new(format!("{} already exists", file.display())));
+    }
+    let schema = Path::new(schemas_dir).join(MONSTER_SCHEMA);
+    let loc = pathdiff::diff_paths(&schema, &parent)
+        .map(|p| path_str(&p).replace('\\', "/"))
+        .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
+    let text = shared::monster::skeleton(&loc, req.family.trim(), req.short_noun.trim(), req.id.trim(), req.name.trim());
+    std::fs::write(&file, text).map_err(|e| AppError::new(format!("Can't write {}: {e}", file.display())))?;
+    Ok(path_str(&file))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creates_a_monster_file() {
+        let t = tempfile::tempdir().unwrap();
+        let schemas = t.path().join("schemas");
+        std::fs::create_dir(&schemas).unwrap();
+        let root = t.path().join("p");
+        std::fs::create_dir_all(root.join("m")).unwrap();
+        let req = NewMonsterFile {
+            parent: path_str(&root.join("m")),
+            file: "rats.xml".into(),
+            family: "Rats".into(),
+            short_noun: "rat".into(),
+            id: "giant-rat".into(),
+            name: "Giant Rat".into(),
+        };
+        let f = create_monster_file(&req, &path_str(&root), &path_str(&schemas)).unwrap();
+        let text = std::fs::read_to_string(&f).unwrap();
+        assert!(text.contains(r#"xsi:noNamespaceSchemaLocation="../../schemas/monster-template-schema.xsd""#), "{text}");
+        assert!(create_monster_file(&req, &path_str(&root), &path_str(&schemas)).is_err(), "exists");
+    }
 
     #[test]
     fn creates_adventure_xml_with_relative_schema() {

@@ -8,6 +8,7 @@ use shared::chapter::{self, ChapterEdit};
 use shared::block::{self, BlockEdit, Container};
 use shared::reference::RefEdit;
 use shared::boxes::{self, BoxEdit};
+use shared::monster::{self, MonsterEdit};
 use shared::list::{self, ListEdit};
 use shared::table::{self, TableAt, TableEdit};
 use shared::{ApplyResult, Change};
@@ -59,6 +60,12 @@ fn selection(change: &Change) -> impl Fn(&DocData) -> Option<usize> + 'static {
             }
             Some(ci)
         }
+        // The element keeps its place: the selection stays (found again by its path).
+        Change::Element { .. } => None,
+        Change::Monster { edit } => match edit {
+            MonsterEdit::Add { id, .. } | MonsterEdit::Move { id, .. } => monster::find_monster(&d.source, &d.nodes, id),
+            MonsterEdit::Delete { .. } => Some(0),
+        },
         Change::Box { edit } => {
             boxes::find(&d.source, &d.nodes, edit.at()).or_else(|| block::find(&d.source, &d.nodes, &edit.at().at))
         }
@@ -131,6 +138,12 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                         f.insert(k);
                     });
                 }
+                if let Change::Element { edit } = &change {
+                    let k = edit.path.clone();
+                    tab.raw_failed.update(|f| {
+                        f.insert(k);
+                    });
+                }
                 if let Change::List { edit: ListEdit::SetItem { at, n, .. } } = &change {
                     let k = (at.clone(), *n);
                     tab.li_failed.update(|f| {
@@ -196,6 +209,20 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 tab.p_failed.update(|f| f.retain(|(a, c)| *a != at || *c < child));
             }
         },
+        Change::Element { edit } => {
+            let k = edit.path.clone();
+            tab.raw_drafts.update(|d| {
+                d.remove(&k);
+            });
+            tab.raw_failed.update(|f| {
+                f.remove(&k);
+            });
+        }
+        // Stat blocks added, moved or deleted: tree paths after them shifted.
+        Change::Monster { .. } => {
+            tab.raw_drafts.update(|d| d.clear());
+            tab.raw_failed.update(|f| f.clear());
+        }
         Change::Box { edit } => {
             let at = edit.at().clone();
             // Paragraphs from `from` on shifted (or the box is gone).

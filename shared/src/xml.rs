@@ -118,6 +118,13 @@ pub fn parse(source: &str) -> Result<Parsed, AppError> {
                     }
                     continue;
                 }
+                // Which elements the tree opens: in a monster file, the family, its lairs
+                // and stat blocks and their entry lists; elsewhere, all but mixed content.
+                let open = if root.as_ref().is_some_and(|(t, _)| t == "monsters") {
+                    crate::monster::TREE_OPEN.contains(&tag.as_str())
+                } else {
+                    !MIXED.contains(&tag.as_str())
+                };
                 let idx = nodes.len();
                 if let Some(parent) = frames.last() {
                     nodes[parent.idx].children.push(idx);
@@ -129,7 +136,7 @@ pub fn parse(source: &str) -> Result<Parsed, AppError> {
                     end: after,
                     line: line_of(source, before),
                     children: Vec::new(),
-                    leaf: MIXED.contains(&tag.as_str()),
+                    leaf: !open,
                 });
                 ids.push(first_id(e));
                 texts.push(String::new());
@@ -138,7 +145,7 @@ pub fn parse(source: &str) -> Result<Parsed, AppError> {
                         idx,
                         direct_text: false,
                         text: String::new(),
-                        suppress: MIXED.contains(&tag.as_str()),
+                        suppress: !open,
                     });
                 }
             }

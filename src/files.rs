@@ -130,6 +130,10 @@ pub fn ContextMenu() -> impl IntoView {
                     }>"New supplement here…"</button>
                     <button on:click=move |_| {
                         close();
+                        app.dialog.set(Some(Dialog::NewMonsterFile { parent: entry.with_value(|e| e.path.clone()) }));
+                    }>"New monster file here…"</button>
+                    <button on:click=move |_| {
+                        close();
                         app.refresh_files();
                     }>"Refresh"</button>
                 }

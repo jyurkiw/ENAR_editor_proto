@@ -215,6 +215,16 @@ fn fields(card: Card, tag: &str, monster_ids: Memo<Vec<String>>, doc_dir: Stored
                     <Field card attr="file" label="File" placeholder="../monsters/goblins.xml" hint="Relative to this supplement"/>
                     <Field card attr="monster" label="Stat block id" hint="The <monster> id in that file"/>
                 </div>
+                {move || {
+                    let f = card.model().get("file");
+                    (!f.trim().is_empty()).then(|| {
+                        let path = format!("{}\\{}", doc_dir.get_value(), f.trim().replace('/', "\\"));
+                        view! {
+                            <button type="button" class="small" title="Open the monster file in a new tab"
+                                on:click=move |_| crate::state::ctx().open_file(path.clone())>"Open monster file"</button>
+                        }
+                    })
+                }}
             </div>
             <div class="subgroup">
                 <div class="subgroup-title">"Template (summoned creatures)"</div>

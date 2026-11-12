@@ -9,12 +9,71 @@ pub mod chapter;
 pub mod cover;
 pub mod display;
 pub mod edit;
+pub mod element;
 pub mod inline;
 pub mod list;
+pub mod monster;
 pub mod reference;
 pub mod table;
 pub mod values;
 pub mod xml;
+
+/// The schema monster files use.
+pub const MONSTER_SCHEMA: &str = "monster-template-schema.xsd";
+
+/// What kind of file a tab holds: its root element and schema.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DocKind {
+    /// `<supplement>`: an adventure, campaign, rules supplement...
+    #[default]
+    Supplement,
+    /// `<monsters>`: a family of stat blocks.
+    Monsters,
+}
+
+impl DocKind {
+    pub fn of_root(tag: &str) -> Option<Self> {
+        match tag {
+            "supplement" => Some(DocKind::Supplement),
+            "monsters" => Some(DocKind::Monsters),
+            _ => None,
+        }
+    }
+    pub fn schema(self) -> &'static str {
+        match self {
+            DocKind::Supplement => SUPPLEMENT_SCHEMA,
+            DocKind::Monsters => MONSTER_SCHEMA,
+        }
+    }
+    pub fn root(self) -> &'static str {
+        match self {
+            DocKind::Supplement => "supplement",
+            DocKind::Monsters => "monsters",
+        }
+    }
+    /// "supplement", "monster file".
+    pub fn noun(self) -> &'static str {
+        match self {
+            DocKind::Supplement => "supplement",
+            DocKind::Monsters => "monster file",
+        }
+    }
+}
+
+/// Arguments for creating a new monster file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewMonsterFile {
+    /// The folder to create it in (the project root or one under it).
+    pub parent: String,
+    /// The file name, with or without ".xml".
+    pub file: String,
+    /// The family's <name> and <shortNoun>.
+    pub family: String,
+    pub short_noun: String,
+    /// The first stat block's id and name.
+    pub id: String,
+    pub name: String,
+}
 
 /// The project settings file at the root of a project directory.
 pub const PROJECT_FILE: &str = "enigma-project.toml";
@@ -187,6 +246,9 @@ pub enum Validation {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OpenedDoc {
     pub path: String,
+    /// Supplement or monster file.
+    #[serde(default)]
+    pub kind: DocKind,
     pub name: String,
     pub source: String,
     /// The tree, root first (index 0 is `<supplement>`).
@@ -238,6 +300,10 @@ pub enum Change {
     Table { edit: table::TableEdit },
     List { edit: list::ListEdit },
     Box { edit: boxes::BoxEdit },
+    /// Replace one element with new XML (any file).
+    Element { edit: element::ElementEdit },
+    /// Add, delete or move a stat block (monster files).
+    Monster { edit: monster::MonsterEdit },
 }
 
 impl Change {
@@ -250,6 +316,8 @@ impl Change {
             Change::Table { edit } => table::plan(source, edit),
             Change::List { edit } => list::plan(source, edit),
             Change::Box { edit } => boxes::plan(source, edit),
+            Change::Element { edit } => element::plan(source, edit),
+            Change::Monster { edit } => monster::plan(source, edit),
         }
     }
 }
