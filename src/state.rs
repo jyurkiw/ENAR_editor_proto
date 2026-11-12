@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use shared::chapter::ChapterModel;
 use shared::cover::CoverModel;
+use shared::block::{Container, Header};
 use shared::reference::RefEntry;
 use shared::Change;
 use shared::{AppError, FsEntry, OpenProject, OpenedDoc, Problem, ProjectInfo};
@@ -110,6 +111,14 @@ pub struct DocTab {
     pub ref_open: RwSignal<HashSet<String>>,
     pub ref_failed: RwSignal<HashSet<String>>,
     pub ref_focus: RwSignal<Option<String>>,
+    /// Section and sidebar forms: header drafts; paragraph drafts by (container, child
+    /// index) as (the text they were made from, the new text), so a draft whose
+    /// paragraph moved or changed is dropped; paragraphs whose last apply was refused;
+    /// and the child to scroll to and focus.
+    pub header_drafts: RwSignal<HashMap<Container, Header>>,
+    pub p_drafts: RwSignal<HashMap<(Container, usize), (String, String)>>,
+    pub p_failed: RwSignal<HashSet<(Container, usize)>>,
+    pub block_focus: RwSignal<Option<usize>>,
     /// An apply is running.
     pub applying: RwSignal<bool>,
     /// Changes waiting for the running apply to finish.
@@ -135,6 +144,10 @@ impl DocTab {
             ref_open: RwSignal::new(HashSet::new()),
             ref_failed: RwSignal::new(HashSet::new()),
             ref_focus: RwSignal::new(None),
+            header_drafts: RwSignal::new(HashMap::new()),
+            p_drafts: RwSignal::new(HashMap::new()),
+            p_failed: RwSignal::new(HashSet::new()),
+            block_focus: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),
             problems: RwSignal::new(Vec::new()),

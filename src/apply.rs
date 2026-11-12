@@ -5,6 +5,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use shared::chapter::{self, ChapterEdit};
+use shared::block::{self, BlockEdit, Container};
 use shared::reference::RefEdit;
 use shared::{ApplyResult, Change};
 
@@ -27,6 +28,19 @@ fn selection(change: &Change) -> impl Fn(&DocData) -> Option<usize> + 'static {
             ChapterEdit::Delete { .. } => Some(0),
         },
         Change::Reference { .. } => d.find_tag("reference"),
+        Change::Block { edit } => {
+            // A renamed section or sidebar is found under its new name.
+            let at = match edit {
+                BlockEdit::Header { at: Container::Section { chapter, nth, .. }, header } => {
+                    Container::Section { chapter: chapter.clone(), name: header.key.clone(), nth: *nth }
+                }
+                BlockEdit::Header { at: Container::Sidebar { chapter, .. }, header } => {
+                    Container::Sidebar { chapter: chapter.clone(), id: header.key.clone() }
+                }
+                other => other.container().clone(),
+            };
+            block::find(&d.source, &d.nodes, &at)
+        }
     }
 }
 
@@ -60,6 +74,12 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                         f.insert(k.clone());
                     });
                 }
+                if let Change::Block { edit: BlockEdit::SetP { at, child, .. } } = &change {
+                    let k = (at.clone(), *child);
+                    tab.p_failed.update(|f| {
+                        f.insert(k);
+                    });
+                }
                 tab.show_problems(problems, checked);
             }
             Err(e) => app.show_error(e),
@@ -83,6 +103,35 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
             });
         }
         Change::Chapter { .. } => {}
+        Change::Block { edit } => match edit {
+            BlockEdit::Header { at, .. } => {
+                let at = at.clone();
+                tab.header_drafts.update(|d| {
+                    d.remove(&at);
+                });
+            }
+            BlockEdit::SetP { at, child, .. } => {
+                let k = (at.clone(), *child);
+                tab.p_drafts.update(|d| {
+                    d.remove(&k);
+                });
+                tab.p_failed.update(|f| {
+                    f.remove(&k);
+                });
+            }
+            BlockEdit::AddP { after, .. } => {
+                // Focus the new paragraph: right after `after`, or first in the body.
+                if let Some(a) = after {
+                    tab.block_focus.set(Some(a + 1));
+                }
+            }
+            BlockEdit::DeleteP { at, child } | BlockEdit::Move { at, child, .. } => {
+                // Paragraph indexes after it shift; drop drafts and marks there.
+                let (at, child) = (at.clone(), *child);
+                tab.p_drafts.update(|d| d.retain(|(a, c), _| *a != at || *c < child));
+                tab.p_failed.update(|f| f.retain(|(a, c)| *a != at || *c < child));
+            }
+        },
         Change::Reference { edit } => {
             if let Some(card) = card {
                 tab.ref_drafts.update(|d| {

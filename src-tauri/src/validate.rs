@@ -267,7 +267,14 @@ pub fn apply_edit(
     let xsd = match check_text(&file, &name, &new, project) {
         Ok((_, xsd, _)) => xsd,
         Err(e) => {
-            let mut problems = vec![Problem { line: None, message: e.message }];
+            // "Can't open x.xml. The file isn't well-formed XML (line 63): ..." reads
+            // oddly for an edit; keep the reason, and lift the line out for the panel.
+            let msg = e.message.strip_prefix(&format!("Can't open {name}. ")).unwrap_or(&e.message).to_string();
+            let line = msg
+                .split_once("(line ")
+                .and_then(|(_, rest)| rest.split_once(')'))
+                .and_then(|(n, _)| n.parse().ok());
+            let mut problems = vec![Problem { line, message: msg.replace("The file isn't", "The edited file isn't") }];
             problems.extend(e.details.into_iter().map(|d| Problem { line: None, message: d }));
             return Ok(ApplyResult::Invalid { problems });
         }
@@ -505,5 +512,72 @@ mod real {
         assert!(matches!(r, ApplyResult::Invalid { .. }), "deleting a used spell should be refused");
         let r = run(&cur, RefEdit::Delete { tag: "noun".into(), id: "new-noun".into() });
         assert!(matches!(r, ApplyResult::Saved { .. }));
+    }
+
+    #[test]
+    #[ignore]
+    fn apply_block_round_trip() {
+        use shared::block::{self, BlockEdit, Container};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let file = t.path().join("adventure.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/adventure.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, edit: BlockEdit| {
+            apply_edit(&path_str(&file), expected, &p, &v, |s| block::plan(s, &edit)).unwrap()
+        };
+        let saved = |r: ApplyResult, what: &str| match r {
+            ApplyResult::Saved { doc } => doc.source,
+            other => panic!("{what} refused: {other:?}"),
+        };
+        let read = |s: &str, at: &Container| {
+            let nodes = xmldoc::parse(s).unwrap().nodes;
+            block::read(s, &nodes, block::find(s, &nodes, at).unwrap())
+        };
+        let sec = Container::Section { chapter: "introduction".into(), name: "how-to-use".into(), nth: 0 };
+        let (_, blocks) = read(&src, &sec);
+        let first = blocks.iter().find(|b| b.tag == "p").unwrap().clone();
+        assert!(first.text.contains("<chapterRef"), "inline markup is kept as XML: {}", first.text);
+
+        // Edit a paragraph, keeping its inline tags.
+        let cur = saved(run(&src, BlockEdit::SetP { at: sec.clone(), child: first.child, text: first.text.replace("This adventure", "This short adventure") }), "edit");
+        assert!(cur.contains("This short adventure"));
+        // A paragraph that isn't well-formed is refused and nothing changes.
+        let r = run(&cur, BlockEdit::SetP { at: sec.clone(), child: first.child, text: "Broken <b>bold".into() });
+        let ApplyResult::Invalid { problems } = r else { panic!("expected refusal") };
+        println!("broken paragraph: {problems:?}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), cur);
+        // Add, move, delete.
+        let cur = saved(run(&cur, BlockEdit::AddP { at: sec.clone(), after: Some(first.child) }), "add");
+        let (_, b) = read(&cur, &sec);
+        let new = b.iter().find(|b| b.tag == "p" && b.text.is_empty()).unwrap().child;
+        let cur = saved(run(&cur, BlockEdit::SetP { at: sec.clone(), child: new, text: "A new paragraph & more.".replace('&', "&amp;") }), "fill");
+        let cur = saved(run(&cur, BlockEdit::Move { at: sec.clone(), child: new, before: Some(first.child) }), "move");
+        let (_, b) = read(&cur, &sec);
+        assert_eq!(b[0].text, "A new paragraph &amp; more.");
+        let cur = saved(run(&cur, BlockEdit::DeleteP { at: sec.clone(), child: b[0].child }), "delete");
+        // Header: a subtitle added to a titled section.
+        let (h, _) = read(&cur, &sec);
+        let cur = saved(run(&cur, BlockEdit::Header { at: sec.clone(), header: block::Header { subtitle: "For the DM".into(), ..h } }), "header");
+        // Rename a sidebar that a sidebarLink points at.
+        let nodes = xmldoc::parse(&cur).unwrap().nodes;
+        let link = nodes.iter().find(|n| n.tag == "sidebarLink").expect("a sidebarLink");
+        let id = shared::edit::start_tag(&cur, link.start).unwrap().value("id").unwrap();
+        let parents = {
+            let mut ps = vec![None; nodes.len()];
+            for (i, n) in nodes.iter().enumerate() {
+                for c in &n.children {
+                    ps[*c] = Some(i);
+                }
+            }
+            ps
+        };
+        let side = (0..nodes.len())
+            .filter_map(|i| block::container_of(&cur, &nodes, &parents, i))
+            .find(|c| matches!(c, Container::Sidebar { id: i, .. } if *i == id))
+            .unwrap();
+        let (h, _) = read(&cur, &side);
+        let cur = saved(run(&cur, BlockEdit::Header { at: side, header: block::Header { key: format!("{id}-x"), ..h } }), "sidebar rename");
+        assert_eq!(block::sidebar_links(&xmldoc::parse(&cur).unwrap().nodes, &cur, &format!("{id}-x")), 1);
     }
 }

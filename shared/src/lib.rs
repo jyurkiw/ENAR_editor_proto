@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod block;
 pub mod chapter;
 pub mod cover;
 pub mod display;
@@ -229,6 +230,7 @@ pub enum Change {
     Cover { model: cover::CoverModel },
     Chapter { edit: chapter::ChapterEdit },
     Reference { edit: reference::RefEdit },
+    Block { edit: block::BlockEdit },
 }
 
 impl Change {
@@ -237,6 +239,7 @@ impl Change {
             Change::Cover { model } => cover::plan(source, model),
             Change::Chapter { edit } => chapter::plan(source, edit),
             Change::Reference { edit } => reference::plan(source, edit),
+            Change::Block { edit } => block::plan(source, edit),
         }
     }
 }

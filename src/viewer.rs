@@ -13,6 +13,9 @@ use shared::reference::{self as refs, RefEdit};
 use shared::Change;
 
 use crate::apply::{apply, ref_key};
+use shared::block::{self as blocks, Container};
+
+use crate::block_form::BlockForm;
 use crate::chapter_form::ChapterForm;
 use crate::reference_form::ReferenceForm;
 use crate::cover_form::{apply_model, CoverForm};
@@ -26,6 +29,8 @@ enum FormKind {
     Chapter(String),
     /// The reference block; `Some(key)` when one of its entries was picked in the tree.
     Reference(Option<String>),
+    /// A section or sidebar; `Some(child)` when one of its children was picked.
+    Block(Container, Option<usize>),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
@@ -37,9 +42,15 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
             shared::edit::start_tag(&d.source, n.start)?.value("name").map(FormKind::Chapter)
         }
         "reference" if top => Some(FormKind::Reference(None)),
+        "section" | "sidebar" => blocks::container_of(&d.source, &d.nodes, &d.parents, idx).map(|c| FormKind::Block(c, None)),
         _ => {
-            // An entry inside <reference>: the reference editor, at that entry's card.
             let parent = d.parents.get(idx).copied().flatten()?;
+            // A child of a section or sidebar: that container's editor, at the child.
+            if let Some(c) = blocks::container_of(&d.source, &d.nodes, &d.parents, parent) {
+                let child = d.nodes[parent].children.iter().position(|k| *k == idx);
+                return Some(FormKind::Block(c, child));
+            }
+            // An entry inside <reference>: the reference editor, at that entry's card.
             let in_ref = d.nodes[parent].tag == "reference" && d.nodes[0].children.contains(&parent);
             if !in_ref {
                 return None;
@@ -97,13 +108,16 @@ fn TabView(tab: DocTab) -> impl IntoView {
     let mounted = Memo::new(move |_| {
         kind.get().map(|k| match k {
             FormKind::Reference(_) => FormKind::Reference(None),
+            FormKind::Block(c, _) => FormKind::Block(c, None),
             other => other,
         })
     });
     // Picking an entry in the tree opens its card.
     Effect::new(move |_| {
-        if let Some(FormKind::Reference(Some(k))) = kind.get() {
-            tab.ref_focus.set(Some(k));
+        match kind.get() {
+            Some(FormKind::Reference(Some(k))) => tab.ref_focus.set(Some(k)),
+            Some(FormKind::Block(_, Some(child))) => tab.block_focus.set(Some(child)),
+            _ => {}
         }
     });
     let form_tag = move || kind.with(|k| k.is_some());
@@ -155,7 +169,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | None => {}
         }
         view! { <pre class="code">{highlighted(&reindent(&d.source, n.start, n.end))}</pre> }.into_any()
     };
@@ -216,6 +230,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Cover), Mode::Form) => view! { <CoverForm tab/> }.into_any(),
                     (Some(FormKind::Chapter(name)), Mode::Form) => view! { <ChapterForm tab name/> }.into_any(),
                     (Some(FormKind::Reference(_)), Mode::Form) => view! { <ReferenceForm tab/> }.into_any(),
+                    (Some(FormKind::Block(at, _)), Mode::Form) => view! { <BlockForm tab at/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

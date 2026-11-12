@@ -6,6 +6,7 @@
 
 mod api;
 mod apply;
+mod block_form;
 mod chapter_form;
 mod cover_form;
 mod dialogs;
