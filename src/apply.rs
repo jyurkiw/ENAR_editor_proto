@@ -7,6 +7,7 @@ use leptos::task::spawn_local;
 use shared::chapter::{self, ChapterEdit};
 use shared::block::{self, BlockEdit, Container};
 use shared::reference::RefEdit;
+use shared::list::{self, ListEdit};
 use shared::table::{self, TableAt, TableEdit};
 use shared::{ApplyResult, Change};
 
@@ -40,7 +41,20 @@ fn selection(change: &Change) -> impl Fn(&DocData) -> Option<usize> + 'static {
                 }
                 other => other.container().clone(),
             };
-            block::find(&d.source, &d.nodes, &at)
+            let ci = block::find(&d.source, &d.nodes, &at)?;
+            // A new list opens in the list editor.
+            if let BlockEdit::AddList { after, .. } = edit {
+                let pos = match after {
+                    Some(a) => a + 1,
+                    None => d.nodes[ci].children.iter().position(|k| d.nodes[*k].tag == "list")?,
+                };
+                return d.nodes[ci].children.get(pos).copied().filter(|k| d.nodes[*k].tag == "list").or(Some(ci));
+            }
+            Some(ci)
+        }
+        Change::List { edit } => {
+            // Still there: the list; deleted: its section or sidebar.
+            list::find(&d.source, &d.nodes, edit.at()).or_else(|| block::find(&d.source, &d.nodes, &edit.at().at))
         }
         Change::Table { edit } => {
             let at = match edit {
@@ -97,6 +111,12 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                         f.insert(k);
                     });
                 }
+                if let Change::List { edit: ListEdit::SetItem { at, n, .. } } = &change {
+                    let k = (at.clone(), *n);
+                    tab.li_failed.update(|f| {
+                        f.insert(k);
+                    });
+                }
                 if let Change::Block { edit: BlockEdit::SetP { at, child, .. } } = &change {
                     let k = (at.clone(), *child);
                     tab.p_failed.update(|f| {
@@ -142,6 +162,7 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                     f.remove(&k);
                 });
             }
+            BlockEdit::AddList { .. } => {}
             BlockEdit::AddP { after, .. } => {
                 // Focus the new paragraph: right after `after`, or first in the body.
                 if let Some(a) = after {
@@ -155,6 +176,31 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 tab.p_failed.update(|f| f.retain(|(a, c)| *a != at || *c < child));
             }
         },
+        Change::List { edit } => {
+            let at = edit.at().clone();
+            // Items from `from` on shifted (or the list is gone): their drafts no longer match.
+            let from = match edit {
+                ListEdit::SetItem { n, .. } => {
+                    let k = (at.clone(), *n);
+                    tab.li_drafts.update(|d| {
+                        d.remove(&k);
+                    });
+                    tab.li_failed.update(|f| {
+                        f.remove(&k);
+                    });
+                    None
+                }
+                ListEdit::Attrs { .. } => None,
+                ListEdit::AddItem { after, .. } => Some(after.map_or(0, |a| a + 1)),
+                ListEdit::DeleteItem { n, .. } => Some(*n),
+                ListEdit::MoveItem { n, before, .. } => Some((*n).min(before.unwrap_or(*n))),
+                ListEdit::Delete { .. } => Some(0),
+            };
+            if let Some(from) = from {
+                tab.li_drafts.update(|d| d.retain(|(a, i), _| *a != at || *i < from));
+                tab.li_failed.update(|f| f.retain(|(a, i)| *a != at || *i < from));
+            }
+        }
         Change::Table { edit } => match edit {
             TableEdit::SetCell { at, part, row, col, .. } => {
                 let k = (at.clone(), *part, *row, *col);

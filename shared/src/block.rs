@@ -62,6 +62,8 @@ pub enum BlockEdit {
     SetP { at: Container, child: usize, text: String },
     /// A new empty paragraph after child `after`, or first in the body when None.
     AddP { at: Container, after: Option<usize> },
+    /// A new one-item list after child `after`, or first in the body when None.
+    AddList { at: Container, after: Option<usize> },
     /// Delete a paragraph.
     DeleteP { at: Container, child: usize },
     /// Move a body child before another, or to the end of the body.
@@ -74,6 +76,7 @@ impl BlockEdit {
             BlockEdit::Header { at, .. }
             | BlockEdit::SetP { at, .. }
             | BlockEdit::AddP { at, .. }
+            | BlockEdit::AddList { at, .. }
             | BlockEdit::DeleteP { at, .. }
             | BlockEdit::Move { at, .. } => at,
         }
@@ -334,7 +337,8 @@ pub fn plan(source: &str, e: &BlockEdit) -> Result<String, String> {
             }
             edit::apply(source, &[set_inner(source, p, text).ok_or("bad <p>")?])
         }
-        BlockEdit::AddP { after, .. } => {
+        BlockEdit::AddP { after, .. } | BlockEdit::AddList { after, .. } => {
+            let xml = if matches!(e, BlockEdit::AddList { .. }) { crate::list::new_list_xml(source) } else { "<p></p>".into() };
             let anchor = match after {
                 Some(i) => Anchor::After(child(&nodes, c, *i)?),
                 None => {
@@ -348,7 +352,7 @@ pub fn plan(source: &str, e: &BlockEdit) -> Result<String, String> {
                     }
                 }
             };
-            edit::apply(source, &[edit::insert_child(source, anchor, "<p></p>").ok_or("can't place the paragraph")?])
+            edit::apply(source, &[edit::insert_child(source, anchor, &xml).ok_or("can't place it")?])
         }
         BlockEdit::DeleteP { child: i, .. } => {
             let p = child(&nodes, c, *i)?;

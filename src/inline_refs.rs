@@ -443,3 +443,77 @@ pub fn RefInsertPanel(
         </Show>
     }
 }
+
+/// Everything a text box of inline XML needs for its refs: the preview, the selected
+/// tag's panel and the Insert panel, wired to the box's text and draft.
+#[derive(Clone, Copy)]
+pub struct RefTools {
+    text: Signal<String>,
+    set_text: Callback<String>,
+    ta: NodeRef<html::Textarea>,
+    ctx: Memo<RefCtx>,
+    sel: RwSignal<Option<usize>>,
+    ins: RwSignal<Option<RefTag>>,
+    ins_at: StoredValue<(usize, usize)>,
+    ins_sel: StoredValue<String>,
+}
+
+impl RefTools {
+    pub fn new(text: Signal<String>, set_text: Callback<String>, ta: NodeRef<html::Textarea>, ctx: Memo<RefCtx>) -> Self {
+        RefTools {
+            text,
+            set_text,
+            ta,
+            ctx,
+            sel: RwSignal::new(None),
+            ins: RwSignal::new(None),
+            ins_at: StoredValue::new((0, 0)),
+            ins_sel: StoredValue::new(String::new()),
+        }
+    }
+
+    /// Opens the Insert panel for the box's current selection.
+    pub fn open_insert(&self) {
+        let t = self.text.get_untracked();
+        let (a, b) = selection(self.ta, &t);
+        self.ins_at.set_value((a, b));
+        self.ins_sel.set_value(t[a..b].to_string());
+        self.sel.set(None);
+        self.ins.set(Some(self.ctx.with_untracked(|c| default_tag("monsterRef", c, ""))));
+    }
+}
+
+/// The preview (when the text has markup), the names status, and the two panels.
+#[component]
+pub fn RefToolsView(tools: RefTools, tab: crate::state::DocTab) -> impl IntoView {
+    let RefTools { text, set_text, ta, ctx, sel, ins, ins_at, ins_sel } = tools;
+    let show_preview = Memo::new(move |_| text.with(|t| t.contains('<') || t.contains('&')));
+    let pick = Callback::new(move |(a, b): (usize, usize)| select_range(ta, &text.get_untracked(), a, b));
+    let insert = Callback::new(move |xml: String| {
+        let t = text.get_untracked();
+        let (a, b) = ins_at.get_value();
+        let (a, b) = (a.min(t.len()), b.min(t.len()));
+        let new = inline::replace(&t, a, b, &xml);
+        set_text.run(new.clone());
+        ins.set(None);
+        let caret = a + xml.len();
+        request_animation_frame(move || select_range(ta, &new, caret, caret));
+    });
+    let names_note = move || match tab.refs.get() {
+        None => Some(view! { <span class="hint">"Reading entry names…"</span> }.into_any()),
+        Some(Err(e)) => Some(view! {
+            <span class="hint bad">"Entry names unavailable: " {e}
+                <button type="button" class="link" on:click=move |_| tab.refresh_refs()>"retry"</button>
+            </span>
+        }.into_any()),
+        Some(Ok(_)) => None,
+    };
+    view! {
+        <Show when=move || show_preview.get()>
+            <RefPreview text ctx selected=sel pick/>
+            {names_note}
+        </Show>
+        <RefEditPanel text ctx selected=sel set_text pick/>
+        <RefInsertPanel draft=ins selected_text=ins_sel ctx insert/>
+    }
+}

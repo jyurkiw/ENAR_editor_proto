@@ -10,12 +10,12 @@ use leptos::html;
 use leptos::prelude::*;
 use shared::block::{self, Block, BlockEdit, Container, Header};
 use shared::display::tokenize;
-use shared::inline::{self, RefCtx, RefTag};
+use shared::inline::RefCtx;
 use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
-use crate::inline_refs::{default_tag, select_range, selection, RefEditPanel, RefInsertPanel, RefPreview};
+use crate::inline_refs::{RefTools, RefToolsView};
 use crate::state::DocTab;
 
 fn highlighted(text: &str) -> impl IntoView {
@@ -200,43 +200,13 @@ fn BlockRow(
         apply(tab, Change::Block { edit: BlockEdit::AddP { at: at.get_value(), after: Some(child()) } });
     };
     // Inline refs: the preview, the selected tag's panel, and the Insert panel.
-    let text_sig = Signal::derive(text);
     let ta = NodeRef::<html::Textarea>::new();
-    let sel_ref = RwSignal::new(None::<usize>);
-    let ins_draft = RwSignal::new(None::<RefTag>);
-    let ins_at = StoredValue::new((0usize, 0usize));
-    let ins_sel = StoredValue::new(String::new());
-    let show_preview = Memo::new(move |_| text_sig.with(|t| t.contains('<') || t.contains('&')));
-    let pick = Callback::new(move |(a, b): (usize, usize)| select_range(ta, &text_sig.get_untracked(), a, b));
-    let set_text_cb = Callback::new(move |s: String| set_text(s));
-    let insert = Callback::new(move |xml: String| {
-        let t = text_sig.get_untracked();
-        let (a, b) = ins_at.get_value();
-        let (a, b) = (a.min(t.len()), b.min(t.len()));
-        let new = inline::replace(&t, a, b, &xml);
-        set_text(new.clone());
-        ins_draft.set(None);
-        let caret = a + xml.len();
-        request_animation_frame(move || select_range(ta, &new, caret, caret));
-    });
-    let open_insert = move |_: MouseEvent| {
-        let t = text_sig.get_untracked();
-        let (a, b) = selection(ta, &t);
-        ins_at.set_value((a, b));
-        ins_sel.set_value(t[a..b].to_string());
-        sel_ref.set(None);
-        ins_draft.set(Some(refctx.with_untracked(|c| default_tag("monsterRef", c, ""))));
-    };
-    let names_note = move || match tab.refs.get() {
-        None => Some(view! { <span class="hint">"Reading entry names…"</span> }.into_any()),
-        Some(Err(e)) => Some(view! {
-            <span class="hint bad">"Entry names unavailable: " {e}
-                <button type="button" class="link" on:click=move |_| tab.refresh_refs()>"retry"</button>
-            </span>
-        }.into_any()),
-        Some(Ok(_)) => None,
-    };
+    let tools = RefTools::new(Signal::derive(text), Callback::new(move |s: String| set_text(s)), ta, refctx);
+    let open_insert = move |_: MouseEvent| tools.open_insert();
 
+    let add_list = move |_: MouseEvent| {
+        apply(tab, Change::Block { edit: BlockEdit::AddList { at: at.get_value(), after: Some(child()) } });
+    };
     let delete = move |_: MouseEvent| {
         let empty = block.get_untracked().is_some_and(|b| b.text.trim().is_empty());
         let ok = empty
@@ -309,18 +279,14 @@ fn BlockRow(
                     <div class="block-main">
                         <textarea node_ref=ta class="p-text" id=move || format!("p-{}", child()) spellcheck="true"
                             prop:value=text on:input=move |ev| set_text(event_target_value(&ev))></textarea>
-                        <Show when=move || show_preview.get()>
-                            <RefPreview text=text_sig ctx=refctx selected=sel_ref pick/>
-                            {names_note}
-                        </Show>
-                        <RefEditPanel text=text_sig ctx=refctx selected=sel_ref set_text=set_text_cb pick/>
-                        <RefInsertPanel draft=ins_draft selected_text=ins_sel ctx=refctx insert/>
+                        <RefToolsView tools tab/>
                         <div class="p-bar">
                             {move || failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
                             {move || (dirty() && !failed()).then(|| view! { <span class="state-badge">"unapplied"</span> })}
                             <span class="spacer"></span>
                             <button class="small" title="Insert a ref tag at the cursor" on:click=open_insert>"+ Ref"</button>
                             <button class="small" title="Insert an empty paragraph below" disabled=busy on:click=add_after>"+ ¶ below"</button>
+                            <button class="small" title="Insert a one-item list below" disabled=busy on:click=add_list>"+ list below"</button>
                             <button class="small" disabled=move || !dirty() || busy() on:click=move |_| revert()>"Revert"</button>
                             <button class="small primary" disabled=move || !dirty() || busy() on:click=move |_| do_apply()>"Apply"</button>
                             <button class="icon-btn danger" title="Delete paragraph" disabled=busy on:click=delete>"✕"</button>
@@ -330,33 +296,56 @@ fn BlockRow(
             } else {
                 let b = block.get().unwrap_or(Block { child: 0, tag: String::new(), text: String::new(), source: String::new() });
                 let src = b.source.clone();
+                // Lists and tables have their own editors: their summary links there.
+                let has_editor = b.tag == "table" || b.tag == "list";
+                let open_editor = move |ev: MouseEvent| {
+                    ev.stop_propagation();
+                    let d = tab.doc_untracked();
+                    if let Some(ci) = block::find(&d.source, &d.nodes, &at.get_value()) {
+                        if let Some(k) = d.nodes[ci].children.get(child()) {
+                            tab.reveal(*k);
+                        }
+                    }
+                };
+                let editor_name = if b.tag == "list" { "list editor" } else { "table editor" };
                 view! {
                     <div class="block-main readonly">
                         <div class="ro-head" on:click=move |_| open.update(|o| *o = !*o)>
                             <span class=format!("ro-tag tag-{}", b.tag)>{tag_name(&b.tag)}</span>
                             <code class="ro-el">{format!("<{}>", b.tag)}</code>
-                            <span class="ro-summary">{b.text.clone()}</span>
+                            {if has_editor {
+                                view! {
+                                    <button type="button" class="link ro-summary ro-link" title=format!("Open the {editor_name}")
+                                        on:click=open_editor>{b.text.clone()}</button>
+                                }.into_any()
+                            } else {
+                                view! { <span class="ro-summary">{b.text.clone()}</span> }.into_any()
+                            }}
                             <span class="spacer"></span>
-                            {(b.tag == "table").then(|| view! {
-                                <button class="small" title="Open the table editor" on:click=move |ev: MouseEvent| {
-                                    ev.stop_propagation();
-                                    let d = tab.doc_untracked();
-                                    if let Some(ci) = block::find(&d.source, &d.nodes, &at.get_value()) {
-                                        if let Some(k) = d.nodes[ci].children.get(child()) {
-                                            tab.reveal(*k);
-                                        }
-                                    }
-                                }>"Open"</button>
+                            {has_editor.then(|| view! {
+                                <button class="small" title=format!("Open the {editor_name}") on:click=open_editor>"Open"</button>
                             })}
                             <button class="small" title="Insert an empty paragraph below" disabled=busy on:click=move |ev: MouseEvent| {
                                 ev.stop_propagation();
                                 add_after(ev);
                             }>"+ ¶ below"</button>
+                            <button class="small" title="Insert a one-item list below" disabled=busy on:click=move |ev: MouseEvent| {
+                                ev.stop_propagation();
+                                add_list(ev);
+                            }>"+ list below"</button>
                             <span class="twist">{move || if open.get() { "▾" } else { "▸" }}</span>
                         </div>
                         <Show when=move || open.get()>
                             <pre class="code ro-source">{highlighted(&src)}</pre>
-                            <p class="hint">"Read-only for now: this element gets its own editor later."</p>
+                            {if has_editor {
+                                view! {
+                                    <p class="hint">"Edit it in the "
+                                        <button type="button" class="link" on:click=open_editor>{editor_name}</button>"."
+                                    </p>
+                                }.into_any()
+                            } else {
+                                view! { <p class="hint">"Read-only for now: this element gets its own editor later."</p> }.into_any()
+                            }}
                         </Show>
                     </div>
                 }.into_any()
@@ -439,6 +428,9 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
                             <span class="hint">"Each paragraph is its XML: inline tags like <b> and <monsterRef/> are kept. Write & as &amp;. The line under a paragraph shows it as printed; click a ref to edit it."</span>
                             <span class="spacer"></span>
                             <button class="small" disabled=busy on:click=add_first>"+ ¶ at start"</button>
+                            <button class="small" disabled=busy on:click=move |_| {
+                                apply(tab, Change::Block { edit: BlockEdit::AddList { at: at.get_value(), after: None } })
+                            }>"+ list at start"</button>
                         </div>
                         <For each=move || 0..blocks.with(|b| b.len()) key=|i| *i let:pos>
                             <BlockRow tab at pos blocks drag refctx/>

@@ -9,6 +9,7 @@ use shared::chapter::ChapterModel;
 use shared::cover::CoverModel;
 use shared::block::{Container, Header};
 use shared::reference::RefEntry;
+use shared::list::ListAt;
 use shared::table::{Part, TableAt};
 use shared::Change;
 use shared::{AppError, FsEntry, OpenProject, OpenedDoc, Problem, ProjectInfo};
@@ -131,6 +132,11 @@ pub struct DocTab {
     /// new text), and cells whose last apply was refused.
     pub cell_drafts: RwSignal<HashMap<(TableAt, Part, usize, usize), (String, String)>>,
     pub cell_failed: RwSignal<HashSet<(TableAt, Part, usize, usize)>>,
+    /// List forms: item drafts by (list, item) as (the text they were made from, the new
+    /// text), items whose last apply was refused, and the item to focus.
+    pub li_drafts: RwSignal<HashMap<(ListAt, usize), (String, String)>>,
+    pub li_failed: RwSignal<HashSet<(ListAt, usize)>>,
+    pub li_focus: RwSignal<Option<usize>>,
     /// What the file's `<reference>` entries print, for the paragraph preview: None
     /// while loading, Err when the backend couldn't read them.
     pub refs: RwSignal<Option<Result<shared::inline::RefIndex, String>>>,
@@ -169,6 +175,9 @@ impl DocTab {
             th_focus: RwSignal::new(None),
             cell_drafts: RwSignal::new(HashMap::new()),
             cell_failed: RwSignal::new(HashSet::new()),
+            li_drafts: RwSignal::new(HashMap::new()),
+            li_failed: RwSignal::new(HashSet::new()),
+            li_focus: RwSignal::new(None),
             refs: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),

@@ -443,3 +443,9 @@ button.link { border: none; background: none; padding: 0 4px; color: var(--accen
 .ref-fields select, .ref-fields input { width: 100%; }
 .ref-prints { margin-top: 6px; font-size: 13px; }
 button.small.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+
+/* ---- list editor ---- */
+.block-gutter.li-gutter { width: 44px; justify-content: flex-start; gap: 6px; }
+.li-marker { color: var(--muted); font: 12px var(--mono); padding-top: 1px; min-width: 18px; text-align: right; }
+.li-text { min-height: 2.4em; }
+.ro-link { padding: 0; text-align: left; color: var(--accent); }

@@ -666,6 +666,55 @@ mod real {
 
     #[test]
     #[ignore]
+    fn apply_list_round_trip() {
+        use shared::block::{self, BlockEdit, Container};
+        use shared::list::{self, ListAt, ListEdit};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let file = t.path().join("adventure.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/adventure.xml")).unwrap();
+        std::fs::write(&file, &src).unwrap();
+        let run = |expected: &str, change: shared::Change| match apply_edit(&path_str(&file), expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc.source,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        let l = |e: ListEdit| shared::Change::List { edit: e };
+        let sec = Container::Section { chapter: "hillsfort".into(), name: "town-at-a-glance".into(), nth: 0 };
+        let nodes = xmldoc::parse(&src).unwrap().nodes;
+        let ci = block::find(&src, &nodes, &sec).unwrap();
+        let child = nodes[ci].children.iter().position(|c| nodes[*c].tag == "list").unwrap();
+        let at = ListAt { at: sec.clone(), child };
+        let view = |s: &str| {
+            let nodes = xmldoc::parse(s).unwrap().nodes;
+            list::find(s, &nodes, &at).map(|i| list::read(s, &nodes, i))
+        };
+        let v0 = view(&src).unwrap();
+        assert!(v0.items[0].starts_with("<b>The Trade Road.</b>"), "{:?}", v0.items[0]);
+
+        let cur = run(&src, l(ListEdit::SetItem { at: at.clone(), n: 0, text: v0.items[0].replace("east to west", "west to east") }));
+        assert!(cur.contains("west to east"));
+        let cur = run(&cur, l(ListEdit::Attrs { at: at.clone(), bullet: "number".into(), style: String::new() }));
+        assert_eq!(view(&cur).unwrap().bullet, "number");
+        let cur = run(&cur, l(ListEdit::AddItem { at: at.clone(), after: Some(0) }));
+        let cur = run(&cur, l(ListEdit::SetItem { at: at.clone(), n: 1, text: "A new item.".into() }));
+        let cur = run(&cur, l(ListEdit::MoveItem { at: at.clone(), n: 1, before: None }));
+        assert_eq!(view(&cur).unwrap().items.last().unwrap(), "A new item.");
+        // A bad item is refused.
+        let r = apply_edit(&path_str(&file), &cur, &p, &v, |s| list::plan(s, &ListEdit::SetItem { at: at.clone(), n: 0, text: "<b>open".into() })).unwrap();
+        assert!(matches!(r, ApplyResult::Invalid { .. }));
+        // Deleting every item deletes the list.
+        let mut cur = cur;
+        while let Some(v) = view(&cur) {
+            cur = run(&cur, l(ListEdit::DeleteItem { at: at.clone(), n: v.items.len() - 1 }));
+        }
+        assert!(view(&cur).is_none());
+        // And a new list can go back in.
+        let cur = run(&cur, shared::Change::Block { edit: BlockEdit::AddList { at: sec.clone(), after: Some(child - 1) } });
+        assert_eq!(view(&cur).unwrap().items, [""]);
+    }
+
+    #[test]
+    #[ignore]
     fn apply_table_round_trip() {
         use shared::table::{self, TableAt, TableEdit};
         let (p, v) = setup();
