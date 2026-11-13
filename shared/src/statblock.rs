@@ -74,12 +74,15 @@ const PROSE: &[&str] = &[
     "failureOrSuccess", "cutline", "p", "td", "effect",
     // magic items
     "li", "th", "title", "subtitle", "data",
+    // spells
+    "cantripUpgrades", "slotUpgrades",
 ];
 
 /// Is `<tag>` (in `<parent>`) prose? A trait's `<description>` is; the lore
 /// `<description>` (paragraphs) isn't.
 pub fn is_prose(parent: &str, tag: &str) -> bool {
-    PROSE.contains(&tag) || (tag == "description" && parent == "trait") || (tag == "name" && parent == "magicItem")
+    PROSE.contains(&tag) || (tag == "description" && parent == "trait") || (tag == "name" && (parent == "magicItem" || parent == "spell"))
+        || (tag == "description" && parent == "material")
 }
 
 /// An action's children other than its prose.
@@ -121,6 +124,20 @@ const ORDER: &[(&str, &[&str])] = &[
     ("magicItem", &["name", "type", "subtypes", "rarities", "attunement", "description", "reference"]),
     ("table", &["title", "header", "tableBody", "footer"]),
     ("sidebar", &["title", "subtitle", "*"]),
+    // spells
+    (
+        "spell",
+        &[
+            "name", "level", "school", "ritual", "castingTimes", "range", "components", "duration", "description", "higherLevels",
+            "classes", "reference",
+        ],
+    ),
+    ("castingTime", &["value", "unit", "trigger"]),
+    ("range", &["type", "distance", "area"]),
+    ("components", &["verbal", "somatic", "materials"]),
+    ("material", &["description", "cost", "consumed"]),
+    ("duration", &["concentration", "value", "unit"]),
+    ("higherLevels", &["cantripUpgrades", "slotUpgrades"]),
 ];
 
 /// Where `<tag>` goes among `<parent>`'s children: lower first; a list's items share one.

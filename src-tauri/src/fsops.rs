@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use shared::{main_file_for_type, is_supplement_type, AppError, FsEntry, NewMagicItem, NewMonsterFile, NewSupplement, MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SUPPLEMENT_SCHEMA};
+use shared::{main_file_for_type, is_supplement_type, AppError, FsEntry, NewMagicItem, NewMonsterFile, NewSpell, NewSupplement, MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SPELL_SCHEMA, SUPPLEMENT_SCHEMA};
 
 use crate::project::path_str;
 
@@ -178,6 +178,41 @@ pub fn create_magic_item_file(req: &NewMagicItem, project_root: &str, schemas_di
     Ok(path_str(&file))
 }
 
+/// Creates a new spell file in `req.parent`: a draft with one empty paragraph.
+pub fn create_spell_file(req: &NewSpell, project_root: &str, schemas_dir: &str) -> Result<String, AppError> {
+    let stem = req.file.trim().trim_end_matches(".xml");
+    if let Some(why) = bad_folder_name(stem) {
+        return Err(AppError::new(format!("The file name {why}")));
+    }
+    for (what, v) in [("spell name", &req.name), ("spell id", &req.id)] {
+        if v.trim().is_empty() {
+            return Err(AppError::new(format!("The {what} is empty")));
+        }
+    }
+    if !shared::spell::LEVELS.contains(&req.level.as_str()) {
+        return Err(AppError::new(format!("\"{}\" isn't a spell level (0 to 9)", req.level)));
+    }
+    if !shared::spell::SCHOOLS.contains(&req.school.as_str()) {
+        return Err(AppError::new(format!("\"{}\" isn't a school of magic", req.school)));
+    }
+    let root = dunce::canonicalize(project_root).map_err(|e| AppError::new(format!("Can't open the project: {e}")))?;
+    let parent = dunce::canonicalize(&req.parent).map_err(|e| AppError::new(format!("Can't open {}: {e}", req.parent)))?;
+    if !parent.starts_with(&root) {
+        return Err(AppError::new(format!("{} isn't inside the project", parent.display())));
+    }
+    let file = parent.join(format!("{stem}.xml"));
+    if file.exists() {
+        return Err(AppError::new(format!("{} already exists", file.display())));
+    }
+    let schema = Path::new(schemas_dir).join(SPELL_SCHEMA);
+    let loc = pathdiff::diff_paths(&schema, &parent)
+        .map(|p| path_str(&p).replace('\\', "/"))
+        .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
+    let text = shared::spell::skeleton(&loc, req.id.trim(), req.name.trim(), &req.level, &req.school);
+    std::fs::write(&file, text).map_err(|e| AppError::new(format!("Can't write {}: {e}", file.display())))?;
+    Ok(path_str(&file))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,7 +234,7 @@ mod tests {
         };
         let f = create_magic_item_file(&req, &path_str(&root), &path_str(&schemas)).unwrap();
         let text = std::fs::read_to_string(&f).unwrap();
-        assert!(text.contains(r#"xsi:noNamespaceSchemaLocation="../../schemas/magic-item-template-schema.xsd" id="flame-tongue" status="draft""#), "{text}");
+        assert!(text.contains(r#"xsi:noNamespaceSchemaLocation="../../schemas/magic-item-template-schema.xsd" id="flame-tongue">"#), "{text}");
         assert!(text.contains("<type>weapon</type>") && text.contains("<rarity>rare</rarity>"), "{text}");
         assert!(create_magic_item_file(&req, &path_str(&root), &path_str(&schemas)).is_err(), "exists");
         req.file = "other".into();

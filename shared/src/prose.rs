@@ -204,6 +204,7 @@ pub fn label(t: &Tok) -> String {
         }
         "speed" => format!("{} Speed", cap(a("name"))),
         "shortNounRef" => "creature".into(),
+        "spellLevelRef" => "the spell's level".into(),
         "formulaRef" => format!("formula {}", a("ref")),
         "choiceRef" => format!("choice {}", a("ref")),
         "coreBookChapterRef" => format!("Chapter {}: {txt}", a("num")),
@@ -234,6 +235,7 @@ pub enum Palette {
     /// A monster file: a stat block's prose, or the family's lore.
     StatBlock,
     MagicItem,
+    Spell,
     Supplement,
 }
 
@@ -243,6 +245,7 @@ impl Palette {
         match self {
             Palette::StatBlock => crate::statblock::INLINE,
             Palette::MagicItem => crate::item::INLINE,
+            Palette::Spell => crate::spell::INLINE,
             Palette::Supplement => SUPPLEMENT,
         }
     }

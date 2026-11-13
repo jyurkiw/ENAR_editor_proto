@@ -287,6 +287,7 @@ pub enum Dialog {
     NewSupplement { parent: String },
     NewMonsterFile { parent: String },
     NewMagicItem { parent: String },
+    NewSpell { parent: String },
     /// Add a chapter to the file in this tab.
     NewChapter { tab: u32 },
 }
@@ -403,7 +404,7 @@ impl AppCtx {
                         let id = self.next_id.get_value();
                         self.next_id.set_value(id + 1);
                         // Files with a <reference>: read what its entries print, for the preview.
-                        let is_supplement = matches!(doc.kind, shared::DocKind::Supplement | shared::DocKind::MagicItem);
+                        let is_supplement = matches!(doc.kind, shared::DocKind::Supplement | shared::DocKind::MagicItem | shared::DocKind::Spell);
                         let tab = DocTab::new(id, doc);
                         if is_supplement {
                             tab.refresh_refs();

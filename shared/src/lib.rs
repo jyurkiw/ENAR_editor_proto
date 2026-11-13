@@ -18,6 +18,7 @@ pub mod names;
 pub mod prose;
 pub mod monster;
 pub mod reference;
+pub mod spell;
 pub mod statblock;
 pub mod table;
 pub mod values;
@@ -27,6 +28,8 @@ pub mod xml;
 pub const MONSTER_SCHEMA: &str = "monster-template-schema.xsd";
 /// The schema magic item files use.
 pub const MAGIC_ITEM_SCHEMA: &str = "magic-item-template-schema.xsd";
+/// The schema spell files use.
+pub const SPELL_SCHEMA: &str = "spell-template-schema.xsd";
 
 /// What kind of file a tab holds: its root element and schema.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +41,8 @@ pub enum DocKind {
     Monsters,
     /// `<magicItem>`: one magic item.
     MagicItem,
+    /// `<spell>`: one spell.
+    Spell,
 }
 
 impl DocKind {
@@ -46,6 +51,7 @@ impl DocKind {
             "supplement" => Some(DocKind::Supplement),
             "monsters" => Some(DocKind::Monsters),
             "magicItem" => Some(DocKind::MagicItem),
+            "spell" => Some(DocKind::Spell),
             _ => None,
         }
     }
@@ -54,6 +60,7 @@ impl DocKind {
             DocKind::Supplement => SUPPLEMENT_SCHEMA,
             DocKind::Monsters => MONSTER_SCHEMA,
             DocKind::MagicItem => MAGIC_ITEM_SCHEMA,
+            DocKind::Spell => SPELL_SCHEMA,
         }
     }
     pub fn root(self) -> &'static str {
@@ -61,6 +68,7 @@ impl DocKind {
             DocKind::Supplement => "supplement",
             DocKind::Monsters => "monsters",
             DocKind::MagicItem => "magicItem",
+            DocKind::Spell => "spell",
         }
     }
     /// "supplement", "monster file".
@@ -69,6 +77,7 @@ impl DocKind {
             DocKind::Supplement => "supplement",
             DocKind::Monsters => "monster file",
             DocKind::MagicItem => "magic item file",
+            DocKind::Spell => "spell file",
         }
     }
 }
@@ -100,6 +109,20 @@ pub struct NewMagicItem {
     /// itemTypeType and rarityType values: "wondrous-item", "uncommon".
     pub item_type: String,
     pub rarity: String,
+}
+
+/// Arguments for creating a new spell file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewSpell {
+    /// The folder to create it in (the project root or one under it).
+    pub parent: String,
+    /// The file name, with or without ".xml".
+    pub file: String,
+    pub id: String,
+    pub name: String,
+    /// "0" (a cantrip) to "9", and a schoolType value.
+    pub level: String,
+    pub school: String,
 }
 
 /// The project settings file at the root of a project directory.

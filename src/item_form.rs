@@ -1,4 +1,4 @@
-//! A magic item's page: the header (name, id, status, type, subtypes, rarities,
+//! A magic item's page: the header (name, id, type, subtypes, rarities,
 //! attunement), the description's blocks as cards (paragraphs, abilities, lists, tables,
 //! sidebars, stat blocks; abilities and sidebars hold blocks of their own), and the
 //! `<reference>` entries, in the supplement's reference editor.
@@ -39,7 +39,13 @@ fn find(m: &El, path: &[usize]) -> Option<El> {
 
 /// A prose box with the item's tags and the entry ref tools: an optional child `tag` of
 /// the element at `loc`, or (None) that element's own text.
-fn prose(c: Card, loc: Loc, tag: Option<&'static str>, label: &'static str, hint: &'static str) -> AnyView {
+/// [`prose`] for a required child: emptying it leaves the element, empty.
+pub(crate) fn prose_kept(c: Card, loc: Loc, tag: &'static str, label: &'static str, hint: &'static str) -> AnyView {
+    let Refs { refs } = refs();
+    view! { <Prose c loc tag=tag label hint keep=true refs/> }.into_any()
+}
+
+pub(crate) fn prose(c: Card, loc: Loc, tag: Option<&'static str>, label: &'static str, hint: &'static str) -> AnyView {
     let Refs { refs, .. } = refs();
     match tag {
         Some(t) => view! { <Prose c loc tag=t label hint refs/> }.into_any(),
@@ -91,7 +97,6 @@ fn HeaderCard(tab: DocTab, it: Memo<Option<El>>) -> impl IntoView {
             {prose(c, r, Some("name"), "Name", "<name>: may pull a creator's name with an entry ref")}
             <div class="field-row">
                 {text_in(c, r, "id", "Id", "flame-tongue", "Unique; other files name the item by it")}
-                {pick_in(c, r, "status", item::STATUSES, Some("(draft)"), "Status", "")}
                 {text_in(c, r, "src", "Source", "(original)", "e.g. 5.2.1 SRD")}
                 <label class="field">
                     <span class="field-label">"Creator"</span>
@@ -147,7 +152,17 @@ fn is_block(parent: &str, tag: &str) -> bool {
 /// The blocks in the element at `path` (the description, an ability or a sidebar), as
 /// cards, with Add buttons.
 #[component]
-fn BlockList(tab: DocTab, it: Memo<Option<El>>, path: Vec<usize>, parent: &'static str, focus: Memo<Vec<usize>>) -> impl IntoView {
+pub(crate) fn BlockList(
+    tab: DocTab,
+    it: Memo<Option<El>>,
+    path: Vec<usize>,
+    parent: &'static str,
+    focus: Memo<Vec<usize>>,
+    /// The kinds its Add buttons offer (default: what a magic item's `parent` takes).
+    #[prop(optional)]
+    kinds: Option<&'static [&'static str]>,
+) -> impl IntoView {
+    let kinds = kinds.unwrap_or_else(|| item::blocks_in(parent));
     let host_path = StoredValue::new(path);
     let host = Memo::new(move |_| it.with(|m| m.as_ref().and_then(|m| find(m, &host_path.get_value()))));
     let blocks = Memo::new(move |_| {
@@ -168,7 +183,7 @@ fn BlockList(tab: DocTab, it: Memo<Option<El>>, path: Vec<usize>, parent: &'stat
             </For>
         </div>
         <div class="add-part">
-            {item::blocks_in(parent).iter().map(|t| {
+            {kinds.iter().map(|t| {
                 let t: &'static str = t;
                 let statblock = t == "monsterStatblock";
                 view! {
@@ -535,9 +550,11 @@ fn TableGrid(c: Card) -> impl IntoView {
                     <tr>
                         {move || (0..cols.get()).map(|j| view! {
                             <th>
-                                {cell_input(c, "header", None, j)}
-                                <button type="button" class="icon-btn danger" title="Delete this column" disabled={cols.get_untracked() <= 1}
-                                    on:click=move |_| del_col(j)>"✕"</button>
+                                <div class="th-cell">
+                                    {cell_input(c, "header", None, j)}
+                                    <button type="button" class="icon-btn danger" title="Delete this column" disabled={cols.get_untracked() <= 1}
+                                        on:click=move |_| del_col(j)>"✕"</button>
+                                </div>
                             </th>
                         }).collect_view()}
                         <th class="row-tools"></th>
@@ -600,10 +617,9 @@ fn statblock_form(tab: DocTab, it: Memo<Option<El>>, el: Memo<Option<El>>) -> An
     .into_any()
 }
 
-/// The magic item file's page.
-#[component]
-pub fn ItemPage(tab: DocTab) -> impl IntoView {
-    let it = Memo::new(move |_| sb::read(&tab.doc().source, ROOT).filter(|m| m.tag == "magicItem"));
+/// The page's entry list (for ref pickers), from a file's `<reference>`, given to its
+/// prose boxes by context.
+pub(crate) fn provide_refs(it: Memo<Option<El>>) -> RefCtx {
     let entries = Memo::new(move |_| {
         it.with(|m| {
             m.as_ref()
@@ -622,6 +638,14 @@ pub fn ItemPage(tab: DocTab) -> impl IntoView {
         })
     });
     provide_context(Refs { refs: entries });
+    entries
+}
+
+/// The magic item file's page.
+#[component]
+pub fn ItemPage(tab: DocTab) -> impl IntoView {
+    let it = Memo::new(move |_| sb::read(&tab.doc().source, ROOT).filter(|m| m.tag == "magicItem"));
+    provide_refs(it);
     crate::prose_editor::provide_env(tab, shared::prose::Palette::MagicItem, None);
     // The tree's selection, as a path from the root.
     let focus = Memo::new(move |_| {

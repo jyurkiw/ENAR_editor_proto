@@ -10,7 +10,7 @@ use std::process::Command;
 use serde::Deserialize;
 use shared::{
     AppError, ApplyResult, DocKind, OpenedDoc, Problem, ProjectInfo, Validation, LEGACY_SUPPLEMENT_SCHEMA,
-    MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SUPPLEMENT_SCHEMA,
+    MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SPELL_SCHEMA, SUPPLEMENT_SCHEMA,
 };
 
 use crate::project::path_str;
@@ -216,10 +216,10 @@ fn check_text(
     let Some(kind) = DocKind::of_root(&parsed.root_tag) else {
         let schema = parsed.schema_location.as_deref().map(file_name).unwrap_or("no schema");
         return Err(AppError::with_details(
-            format!("{name} isn't a supplement, monster or magic item file."),
+            format!("{name} isn't a supplement, monster, magic item or spell file."),
             vec![
                 format!("Its root element is <{}> and it names {schema}.", parsed.root_tag),
-                format!("Only files using {SUPPLEMENT_SCHEMA}, {MONSTER_SCHEMA} or {MAGIC_ITEM_SCHEMA} can be opened."),
+                format!("Only files using {SUPPLEMENT_SCHEMA}, {MONSTER_SCHEMA}, {MAGIC_ITEM_SCHEMA} or {SPELL_SCHEMA} can be opened."),
             ],
         ));
     };
@@ -444,14 +444,18 @@ mod real {
 
     #[test]
     #[ignore]
-    fn opens_monster_files_rejects_spells() {
+    fn opens_monster_and_spell_files_rejects_others() {
         let (p, v) = setup();
         let doc = open_file(&format!("{REPO}/adventures/compiler-test/apprentice-wizard.xml"), &p, &v).unwrap();
         assert_eq!(doc.kind, DocKind::Monsters);
         assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
-        let err = open_file(&format!("{REPO}/adventures/compiler-test/thistlewoods-hearthward.xml"), &p, &v).unwrap_err();
+        let spell = open_file(&format!("{REPO}/adventures/compiler-test/thistlewoods-hearthward.xml"), &p, &v).unwrap();
+        assert_eq!(spell.kind, DocKind::Spell);
+        assert!(spell.warnings.is_empty(), "{:?}", spell.warnings);
+        // A license file has no editor.
+        let err = open_file(&format!("{REPO}/schemas/dmsguild-license.xml"), &p, &v).unwrap_err();
         println!("{}\n  {}", err.message, err.details.join("\n  "));
-        assert!(err.message.contains("isn't a supplement, monster or magic item file"));
+        assert!(err.message.contains("isn't a supplement, monster, magic item or spell file"));
         // Every shared monster file opens and validates.
         let dir = format!("{REPO}/shared/internal/monsters");
         let mut n = 0;
@@ -697,7 +701,6 @@ mod real {
         let mut h = m(&doc.source);
         h.kids.retain(|k| header.contains(&k.tag));
         h.set("creator", "lisra");
-        h.set("status", "mechanics-locked");
         h.kid_mut("name").unwrap().text = "<monsterRef ref=\"lisra\" value=\"shortName\"/>'s Lantern".into();
         h.kid_mut("subtypes").unwrap().kids.push(El::new("subtype").with_text("Lantern"));
         h.kid_mut("rarities").unwrap().kids.push(El::new("rarity").with("note", "awakened").with_text("very-rare"));
@@ -745,6 +748,146 @@ mod real {
         let change = stat(StatEdit::Update { child: ROOT, el: bad, scope: None });
         let r = apply_edit(&path, &doc.source, &p, &v, |s| change.plan(s)).unwrap();
         assert!(matches!(r, ApplyResult::Invalid { .. }), "expected a refusal");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), doc.source);
+        println!("{}", doc.source);
+    }
+
+    /// Every spell in the data: each card applied unchanged writes nothing.
+    #[test]
+    #[ignore]
+    fn spell_cards_unchanged_are_no_ops() {
+        use shared::statblock::{self as sb, El, StatEdit};
+        fn xmls(dir: &Path, out: &mut Vec<PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if p.is_dir() && !name.starts_with('.') && name != "node_modules" && name != "target" {
+                    xmls(&p, out);
+                } else if name.ends_with(".xml") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        xmls(Path::new(REPO), &mut files);
+        let (mut checked, mut failures) = (0, Vec::new());
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            if !src.contains("<spell") {
+                continue;
+            }
+            let Some(m) = sb::read(&src, sb::ROOT) else { continue };
+            if m.tag != "spell" {
+                continue;
+            }
+            checked += 1;
+            let header: Vec<String> = ["name", "level", "school", "ritual", "classes"].iter().map(|t| t.to_string()).collect();
+            let mut h = m.clone();
+            h.kids.retain(|k| header.contains(&k.tag));
+            let mut cards: Vec<(El, Option<Vec<String>>)> = vec![(h, Some(header))];
+            for k in &m.kids {
+                match k.tag.as_str() {
+                    "castingTimes" | "range" | "components" | "duration" | "higherLevels" => cards.push((k.clone(), None)),
+                    "description" => cards.extend(k.kids.iter().map(|b| (b.clone(), None))),
+                    _ => {}
+                }
+            }
+            for (el, scope) in cards {
+                let tag = el.tag.clone();
+                match sb::plan(&src, &StatEdit::Update { child: sb::ROOT, el, scope }) {
+                    Ok(out) if out == src => {}
+                    Ok(out) => {
+                        let at = src.bytes().zip(out.bytes()).position(|(a, b)| a != b).unwrap_or(0);
+                        failures.push(format!("{}: <{tag}> changed near: {:?}", f.display(), &src[at.saturating_sub(40)..(at + 40).min(src.len())]));
+                    }
+                    Err(e) => failures.push(format!("{}: <{tag}>: {e}", f.display())),
+                }
+            }
+        }
+        println!("{checked} spells checked");
+        assert!(checked > 300);
+        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// A new spell, built up through its cards, against the spell schema.
+    #[test]
+    #[ignore]
+    fn spell_round_trip() {
+        use shared::reference::{RefEdit, RefEntry};
+        use shared::statblock::{self as sb, El, StatEdit, ROOT};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures/compiler-test")).unwrap();
+        let req = shared::NewSpell {
+            parent: path_str(t.path()),
+            file: "kindle".into(),
+            id: "kindle-blade".into(),
+            name: "Kindle Blade".into(),
+            level: "2".into(),
+            school: "Evocation".into(),
+        };
+        let path = crate::fsops::create_spell_file(&req, REPO, &p.schemas_dir).unwrap();
+        let doc = open_file(&path, &p, &v).unwrap();
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        assert_eq!(doc.kind, DocKind::Spell);
+        let run = |expected: &str, change: shared::Change| match apply_edit(&path, expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        let stat = |e: StatEdit| shared::Change::Stat { edit: e };
+        let m = |s: &str| sb::read(s, ROOT).unwrap();
+        let card = |s: &str, tag: &str| m(s).kid(tag).unwrap().clone();
+
+        // An item entry and a monster entry, then an itemRef in the description.
+        let mut ft = RefEntry::new("item");
+        let item = format!("{REPO}/shared/internal/magic_items/flame-tongue.xml");
+        ft.attrs = vec![("id".into(), "ft".into()), ("file".into(), shared::prose::rel_path(&path, &item))];
+        let doc = run(&doc.source, shared::Change::Reference { edit: RefEdit::Add { entry: ft } });
+        let mut para = card(&doc.source, "description").kids[0].clone();
+        para.text = "The blade burns like a <itemRef ref=\"ft\" value=\"name\"/>, dealing <damage num=\"2\" sides=\"6\" mod=\"spellLevel\" type=\"fire\"/>.".into();
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: para, scope: None }));
+
+        // Casting: a bonus action with a trigger and a reaction; touch range with an area;
+        // a costly consumed material; concentration up to a minute.
+        let mut ct = card(&doc.source, "castingTimes");
+        ct.kids[0].kid_mut("unit").unwrap().text = "bonus-action".into();
+        ct.kids.push(El::new("castingTime").with("note", "Retort").with_kid(El::new("value").with_text("1")).with_kid(El::new("unit").with_text("reaction")).with_kid(El::new("trigger").with_text("when you are hit by a <rule>Melee</rule> attack")));
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: ct, scope: None }));
+        let mut r = card(&doc.source, "range");
+        r.kid_mut("type").unwrap().text = "self".into();
+        r.kid_mut("distance").unwrap().text = String::new();
+        r.insert_kid(El::new("area").with("name", "cone").with("size", "15"));
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: r, scope: None }));
+        let mut c = card(&doc.source, "components");
+        c.kid_mut("materials").unwrap().kids.push(El::new("material").with_kid(El::new("description").with_text("a ruby")).with_kid(El::new("cost").with("currency", "gp").with_text("50")).with_kid(El::new("consumed").with_text("true")));
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: c, scope: None }));
+        let mut d = card(&doc.source, "duration");
+        d.kid_mut("concentration").unwrap().text = "true".into();
+        d.kid_mut("value").unwrap().text = "1".into();
+        d.kid_mut("unit").unwrap().text = "up-to-minute".into();
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: d, scope: None }));
+
+        // Header: a ritual, another class; At Higher Levels; a table after the paragraph.
+        let header: Vec<String> = ["name", "level", "school", "ritual", "classes"].iter().map(|s| s.to_string()).collect();
+        let mut h = m(&doc.source);
+        h.kids.retain(|k| header.contains(&k.tag));
+        h.kid_mut("ritual").unwrap().text = "true".into();
+        h.kid_mut("classes").unwrap().kids.push(El::new("class").with_text("Sorcerer"));
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: h, scope: Some(header) }));
+        let mut hl = card(&doc.source, "higherLevels");
+        hl.kid_mut("slotUpgrades").unwrap().text = "The damage increases by <roll num=\"1\" sides=\"6\"/> for each spell slot level above <spellLevelRef/>.".into();
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: hl, scope: None }));
+        let dp = card(&doc.source, "description").path.unwrap();
+        let table = El::new("table").with_kid(El::new("tableBody").with_kid(El::new("tr").with_kid(El::new("td").with_text("1")).with_kid(El::new("td").with_text("Sparks"))));
+        let doc = run(&doc.source, stat(StatEdit::Insert { child: ROOT, parent: dp, parent_tag: "description".into(), el: table, after: Some(0) }));
+
+        // A bad school is refused, and nothing is written.
+        let mut bad = m(&doc.source);
+        let header: Vec<String> = vec!["school".into()];
+        bad.kids.retain(|k| k.tag == "school");
+        bad.kid_mut("school").unwrap().text = "Pyromancy".into();
+        let change = stat(StatEdit::Update { child: ROOT, el: bad, scope: Some(header) });
+        let res = apply_edit(&path, &doc.source, &p, &v, |s| change.plan(s)).unwrap();
+        assert!(matches!(res, ApplyResult::Invalid { .. }), "expected a refusal");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), doc.source);
         println!("{}", doc.source);
     }

@@ -2,7 +2,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use shared::{AppError, ApplyResult, Change, FsEntry, NewMagicItem, NewMonsterFile, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
+use shared::{AppError, ApplyResult, Change, FsEntry, NewMagicItem, NewMonsterFile, NewSpell, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -81,6 +81,14 @@ pub async fn create_magic_item_file(req: &NewMagicItem) -> Result<String, AppErr
 
 pub async fn library() -> Result<Vec<shared::prose::LibEntry>, AppError> {
     invoke("library", &NoArgs {}).await
+}
+
+pub async fn create_spell_file(req: &NewSpell) -> Result<String, AppError> {
+    #[derive(Serialize)]
+    struct A<'a> {
+        req: &'a NewSpell,
+    }
+    invoke("create_spell_file", &A { req }).await
 }
 
 pub async fn open_file(path: &str) -> Result<OpenedDoc, AppError> {

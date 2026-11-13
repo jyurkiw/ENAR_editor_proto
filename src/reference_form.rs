@@ -653,7 +653,12 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
                         <div class="menu add-menu">
                             {KINDS.iter().filter(|(k, _)| {
                                 // A magic item's <reference> takes only some kinds.
-                                tab.doc_untracked().kind != shared::DocKind::MagicItem || shared::item::REF_KINDS.contains(k)
+                                match tab.doc_untracked().kind {
+                                    shared::DocKind::MagicItem => shared::item::REF_KINDS.contains(k),
+                                    // A spell links out to monster and magic item stat blocks.
+                                    shared::DocKind::Spell => shared::spell::REF_KINDS.contains(k),
+                                    _ => true,
+                                }
                             }).map(|(k, d)| view! {
                                 <button on:click=move |_| add(k)>
                                     <span class=format!("ref-kind kind-{k}")>{*k}</span>

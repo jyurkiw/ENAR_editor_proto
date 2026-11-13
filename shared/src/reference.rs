@@ -213,6 +213,11 @@ const POINTERS: &[(&str, &str, Ctx, &str)] = &[
     ("magicItem", "creator", Ctx::Any, "spell"),
     ("magicItem", "creator", Ctx::Any, "item"),
     ("magicItem", "creator", Ctx::Any, "data"),
+    // A spell's creator likewise (a <reference><spell> entry has no creator attribute).
+    ("spell", "creator", Ctx::Any, "monster"),
+    ("spell", "creator", Ctx::Any, "spell"),
+    ("spell", "creator", Ctx::Any, "item"),
+    ("spell", "creator", Ctx::Any, "data"),
 ];
 
 /// Every pointer at a reference entry: (kind, id, start-tag offset, attribute).
@@ -374,7 +379,7 @@ fn content_splices(source: &str, nodes: &[StructNode], ni: usize, new: &RefEntry
 /// `<chapterOrder>`, or last in a magic item (after its `<description>`).
 fn place_block(source: &str, nodes: &[StructNode], block: &str) -> Result<Splice, String> {
     let root = &nodes[0];
-    if root.tag == "magicItem" {
+    if root.tag == "magicItem" || root.tag == "spell" {
         let last = root.children.last().map(|c| &nodes[*c]).ok_or("the item is empty")?;
         return edit::insert_child(source, Anchor::After(last), block).ok_or_else(|| "can't place <reference>".to_string());
     }

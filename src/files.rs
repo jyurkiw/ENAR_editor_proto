@@ -138,6 +138,10 @@ pub fn ContextMenu() -> impl IntoView {
                     }>"New magic item here…"</button>
                     <button on:click=move |_| {
                         close();
+                        app.dialog.set(Some(Dialog::NewSpell { parent: entry.with_value(|e| e.path.clone()) }));
+                    }>"New spell here…"</button>
+                    <button on:click=move |_| {
+                        close();
                         app.refresh_files();
                     }>"Refresh"</button>
                 }

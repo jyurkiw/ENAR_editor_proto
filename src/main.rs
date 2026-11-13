@@ -14,6 +14,7 @@ mod dialogs;
 mod reference_form;
 mod files;
 mod item_form;
+mod spell_form;
 mod list_form;
 mod prose_editor;
 mod family_form;
@@ -83,6 +84,11 @@ fn Toolbar() -> impl IntoView {
             app.dialog.set(Some(Dialog::NewMonsterFile { parent: p.root }));
         }
     };
+    let new_spell = move |_| {
+        if let Some(p) = app.project.get_untracked() {
+            app.dialog.set(Some(Dialog::NewSpell { parent: p.root }));
+        }
+    };
     let new_item = move |_| {
         if let Some(p) = app.project.get_untracked() {
             app.dialog.set(Some(Dialog::NewMagicItem { parent: p.root }));
@@ -99,6 +105,7 @@ fn Toolbar() -> impl IntoView {
             <button disabled=move || app.project.get().is_none() on:click=new_supplement>"New supplement…"</button>
             <button disabled=move || app.project.get().is_none() on:click=new_monster_file>"New monster file…"</button>
             <button disabled=move || app.project.get().is_none() on:click=new_item>"New magic item…"</button>
+            <button disabled=move || app.project.get().is_none() on:click=new_spell>"New spell…"</button>
         </header>
     }
 }

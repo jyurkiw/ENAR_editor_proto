@@ -29,8 +29,6 @@ pub const RARITIES: &[(&str, &str)] = &[
     ("varies", "Rarity Varies"),
 ];
 
-/// statusType: how far along the item is.
-pub const STATUSES: &[&str] = &["draft", "mechanics-locked", "prose-complete", "final"];
 
 /// The reference entry kinds an item file has.
 pub const REF_KINDS: &[&str] = &["monster", "spell", "item", "data"];
@@ -58,11 +56,11 @@ pub fn block_label(tag: &str) -> &'static str {
     BLOCKS.iter().find(|(t, _)| *t == tag).map(|(_, l)| *l).unwrap_or("Block")
 }
 
-/// A new, schema-valid item file: a draft with one empty paragraph.
+/// A new, schema-valid item file with one empty paragraph.
 pub fn skeleton(schema_location: &str, id: &str, name: &str, item_type: &str, rarity: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-         <magicItem xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"{loc}\" id=\"{id}\" status=\"draft\">\n\
+         <magicItem xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"{loc}\" id=\"{id}\">\n\
          \x20   <name>{name}</name>\n\
          \x20   <type>{item_type}</type>\n\
          \x20   <subtypes/>\n\

@@ -127,7 +127,7 @@ fn build(project: &ProjectInfo) -> Index {
 pub fn update_file(file: &Path) {
     let c = canon(file);
     let hidden = c.components().any(|p| p.as_os_str().to_string_lossy().starts_with('.'));
-    let mut i = index().write().unwrap();
+    let i = index().read().unwrap();
     let inside = i.srd.as_ref().is_some_and(|s| c.starts_with(s)) || i.root.as_ref().is_some_and(|r| c.starts_with(r));
     if hidden || !inside || !wanted(&c) {
         return;

@@ -21,6 +21,7 @@ use crate::block_form::BlockForm;
 use crate::box_form::BoxForm;
 use crate::monster_form::MonsterForm;
 use crate::item_form::ItemPage;
+use crate::spell_form::SpellPage;
 use crate::list_form::ListForm;
 use shared::boxes::{self as boxes, BoxAt};
 use crate::table_form::TableForm;
@@ -50,12 +51,17 @@ enum FormKind {
     Monster(Vec<usize>, String),
     /// Anything in a magic item file: its one page.
     Item,
+    /// Anything in a spell file: its one page.
+    Spell,
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     let n = d.nodes.get(idx)?;
     if d.kind == shared::DocKind::MagicItem {
         return Some(FormKind::Item);
+    }
+    if d.kind == shared::DocKind::Spell {
+        return Some(FormKind::Spell);
     }
     if d.kind == shared::DocKind::Monsters {
         let key = d.key_of(idx);
@@ -158,6 +164,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
         shared::DocKind::Supplement => shared::prose::Palette::Supplement,
         shared::DocKind::Monsters => shared::prose::Palette::StatBlock,
         shared::DocKind::MagicItem => shared::prose::Palette::MagicItem,
+        shared::DocKind::Spell => shared::prose::Palette::Spell,
     };
     crate::prose_editor::provide_env(tab, palette, None);
     let selected = tab.selected;
@@ -228,7 +235,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | Some(FormKind::Spell) | None => {}
             Some(FormKind::Monster(path, tag)) => {
                 if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
                     let p2 = path.clone();
@@ -306,6 +313,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Box(at)), Mode::Form) => view! { <BoxForm tab at/> }.into_any(),
                     (Some(FormKind::Monster(path, tag)), Mode::Form) => view! { <MonsterForm tab path tag/> }.into_any(),
                     (Some(FormKind::Item), Mode::Form) => view! { <ItemPage tab/> }.into_any(),
+                    (Some(FormKind::Spell), Mode::Form) => view! { <SpellPage tab/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>
