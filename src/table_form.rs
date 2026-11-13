@@ -11,6 +11,7 @@ use shared::table::{self, Part, TableAt, TableEdit, TableView};
 use shared::Change;
 use wasm_bindgen::JsCast;
 
+use crate::prose_editor::ChipEditor;
 use crate::apply::apply;
 use crate::state::DocTab;
 
@@ -169,8 +170,8 @@ fn HeaderRow(tab: DocTab, at: StoredValue<TableAt>, col: usize, view: Memo<Optio
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>
             <span class="th-num" title="Column">{col + 1}</span>
-            <textarea class="th-text" id=format!("th-{col}") rows=1 placeholder="(empty header)"
-                prop:value=text on:input=move |ev| set(event_target_value(&ev))></textarea>
+            <div class="th-text"><ChipEditor value=Signal::derive(text) set=Callback::new(move |s: String| set(s)) placeholder="(empty header)"
+                single=true id=Signal::derive(move || format!("th-{col}"))/></div>
             <span class="th-cells" title="Row cells in this column">{move || {
                 let n = cells.with(|c| c.get(col).copied().unwrap_or(0));
                 format!("{n} cell(s)")
@@ -276,8 +277,7 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
             </div>
             {move || if present.get() {
                 view! {
-                    <textarea class="cell-text" rows=1 placeholder="(empty)"
-                        prop:value=text on:input=move |ev| set(event_target_value(&ev))></textarea>
+                    <ChipEditor value=Signal::derive(text) set=Callback::new(move |s: String| set(s)) placeholder="(empty)" single=true/>
                 }.into_any()
             } else {
                 // The row is short of the headers: only the first missing slot offers a cell.

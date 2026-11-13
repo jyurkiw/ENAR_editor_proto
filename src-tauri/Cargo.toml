@@ -21,6 +21,7 @@ toml = "0.8"
 quick-xml = "0.37"
 pathdiff = "0.2"
 dunce = "1"
+notify = "8"
 
 [dev-dependencies]
 tempfile = "3"

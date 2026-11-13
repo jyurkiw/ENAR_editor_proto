@@ -14,6 +14,8 @@ pub mod family;
 pub mod inline;
 pub mod item;
 pub mod list;
+pub mod names;
+pub mod prose;
 pub mod monster;
 pub mod reference;
 pub mod statblock;

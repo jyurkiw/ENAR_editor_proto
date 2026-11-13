@@ -52,7 +52,8 @@ fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usiz
             ChapterEdit::Add { name, .. } => chapter::find_chapter(&d.source, &d.nodes, name),
             ChapterEdit::Delete { .. } => Some(0),
         },
-        Change::Reference { .. } => d.find_tag("reference"),
+        // The selection stays: an entry the ref generator added mustn't move the page.
+        Change::Reference { .. } => None,
         Change::Block { edit } => {
             // A renamed section or sidebar is found under its new name.
             let at = match edit {

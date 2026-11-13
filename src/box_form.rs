@@ -14,7 +14,7 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
-use crate::inline_refs::{RefTools, RefToolsView};
+use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 
 fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
@@ -187,8 +187,6 @@ fn TextRow(
             f.remove(&k);
         });
     };
-    let ta = NodeRef::<html::Textarea>::new();
-    let tools = RefTools::new(Signal::derive(text), Callback::new(move |s: String| set(s)), ta, refctx);
 
     let add_below = move |_: MouseEvent| {
         let after = n;
@@ -305,17 +303,14 @@ fn TextRow(
                 })}
             </div>
             <div class="block-main">
-                <textarea node_ref=ta class="p-text" class:trigger-text=n.is_none() id=id spellcheck="true"
-                    rows=if n.is_none() { 1 } else { 2 }
+                <ChipEditor value=Signal::derive(text) set=Callback::new(move |s: String| set(s))
                     placeholder=if n.is_none() { "(no trigger) e.g. When the characters enter the hall" } else { "(empty paragraph)" }
-                    prop:value=text on:input=move |ev| set(event_target_value(&ev))></textarea>
-                <RefToolsView tools tab/>
+                    single=n.is_none() id=Signal::derive({ let id = id.clone(); move || id.clone() })/>
                 {move || note().map(|s| view! { <p class="hint box-note">{s}</p> })}
                 <div class="p-bar">
                     {move || failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
                     {move || (dirty() && !failed()).then(|| view! { <span class="state-badge">"unapplied"</span> })}
                     <span class="spacer"></span>
-                    <button class="small" title="Insert a ref tag at the cursor" on:click=move |_| tools.open_insert()>"+ Ref"</button>
                     <button class="small" title=if n.is_none() { "Insert an empty paragraph first in the box" } else { "Insert an empty paragraph below" }
                         disabled=busy on:click=add_below>{if n.is_none() { "+ ¶ first" } else { "+ ¶ below" }}</button>
                     <button class="small" disabled=move || !dirty() || busy() on:click=move |_| revert()>"Revert"</button>
@@ -392,7 +387,7 @@ pub fn BoxForm(tab: DocTab, at: BoxAt) -> impl IntoView {
                     <div class="table-card box-body">
                         <div class="table-card-title">
                             {move || format!("Paragraphs ({})", count.get())}
-                            <span class="hint">"Each paragraph is its XML, with the line under it showing it as printed; click a ref to edit it."</span>
+                            <span class="hint">"Type text; refs and tags show as chips. Click a chip to edit it; ＋ or Ctrl+K inserts one; Ctrl+B and Ctrl+I bold and italicize."</span>
                         </div>
                         <Show when=move || { count.get() == 0 }>
                             <p class="hint">"No paragraphs: the box prints empty. Add one with \u{201c}+ \u{b6} first\u{201d} on the trigger."</p>

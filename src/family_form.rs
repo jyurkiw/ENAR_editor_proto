@@ -16,6 +16,7 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
+use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 
 pub(crate) fn confirm(msg: &str) -> bool {
@@ -369,8 +370,7 @@ fn ParaRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, paras: Memo<Vec<Strin
             }>
             <div class="block-gutter"><span class="para-n">{n + 1}</span></div>
             <div class="block-main">
-                <textarea class="p-text" spellcheck="true" rows=2 placeholder="(empty paragraph)"
-                    prop:value=move || d.text() on:input=move |ev| d.set(event_target_value(&ev))></textarea>
+                <ChipEditor value=Signal::derive(move || d.text()) set=Callback::new(move |s: String| d.set(s)) placeholder="(empty paragraph)"/>
                 {move || bad().map(|e| view! { <p class="hint bad">"Not well-formed XML yet: " {e}</p> })}
                 <div class="p-bar">
                     {move || d.failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
@@ -569,8 +569,8 @@ fn ImageForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
             </div>
             <label class="field">
                 <span class="field-label">"Cutline"</span>
-                <textarea class="p-text" rows=2 placeholder="(none) The caption under the image"
-                    prop:value=move || m().cutline on:input=move |ev| d.change(|x: &mut ImageModel| x.cutline = event_target_value(&ev))></textarea>
+                <ChipEditor value=Signal::derive(move || m().cutline) set=Callback::new(move |s: String| d.change(|x: &mut ImageModel| x.cutline = s))
+                    placeholder="(none) The caption under the image"/>
                 {move || bad().map(|e| view! { <span class="hint bad">"Not well-formed XML yet: " {e}</span> })}
                 <span class="hint">"<cutline>: the caption, in italics. Empty removes it. Ctrl+Enter applies."</span>
             </label>
@@ -630,7 +630,7 @@ fn TableForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
             }>
             <div class="table-card-title">
                 "Distinction table"
-                <span class="hint">"A roll table: headings are plain text, cells are XML (inline tags allowed). Enter applies; Esc reverts."</span>
+                <span class="hint">"A roll table: headings are plain text; cells take refs and tags (＋ or Ctrl+K). Enter applies; Esc reverts."</span>
             </div>
             <table class="dist-grid">
                 <thead>
@@ -662,8 +662,9 @@ fn TableForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
                             <tr>
                                 {(0..cols()).map(|c| view! {
                                     <td>
-                                        <input type="text" prop:value=move || g().rows.get(r).and_then(|x| x.get(c)).cloned().unwrap_or_default()
-                                            on:input=move |ev| d.change(|x: &mut Grid| if let Some(cell) = x.rows.get_mut(r).and_then(|x| x.get_mut(c)) { *cell = event_target_value(&ev) })/>
+                                        <ChipEditor value=Signal::derive(move || g().rows.get(r).and_then(|x| x.get(c)).cloned().unwrap_or_default())
+                                            set=Callback::new(move |s: String| d.change(|x: &mut Grid| if let Some(cell) = x.rows.get_mut(r).and_then(|x| x.get_mut(c)) { *cell = s }))
+                                            hint=Signal::derive(move || g().heads.get(c).cloned().unwrap_or_default()) single=true/>
                                     </td>
                                 }).collect_view()}
                                 <td class="row-tools">
@@ -732,8 +733,8 @@ fn EffectRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, effects: Memo<Vec<E
                             on:input=move |ev| d.change(|x: &mut EffectView| x.id = event_target_value(&ev))/>
                     </label>
                 </div>
-                <textarea class="p-text" spellcheck="true" rows=2 placeholder="(no text) What the effect does"
-                    prop:value=move || m().text on:input=move |ev| d.change(|x: &mut EffectView| x.text = event_target_value(&ev))></textarea>
+                <ChipEditor value=Signal::derive(move || m().text) set=Callback::new(move |s: String| d.change(|x: &mut EffectView| x.text = s))
+                    placeholder="(no text) What the effect does"/>
                 {move || bad().map(|e| view! { <p class="hint bad">"Not well-formed XML yet: " {e}</p> })}
                 <div class="p-bar">
                     {move || d.failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
@@ -867,7 +868,7 @@ fn PartForm(tab: DocTab, fam: Memo<Option<Family>>, child: usize, tag: String) -
                 "quoteBox" => view! { <QuoteForm tab at view/> }.into_any(),
                 "image" => view! { <ImageForm tab at view/> }.into_any(),
                 "description" => view! {
-                    <Paras tab at view min_one=true title="Paragraphs" hint="The family's lore. At least one; each is its XML (inline tags like <shortNounRef/> and <i>)."/>
+                    <Paras tab at view min_one=true title="Paragraphs" hint="The family's lore. At least one."/>
                 }.into_any(),
                 "distinctionTable" => view! { <TableForm tab at view/> }.into_any(),
                 _ => view! { <LairForm tab at view fam/> }.into_any(),

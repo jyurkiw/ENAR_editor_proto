@@ -4,6 +4,7 @@
 //! `current_project` and changes it with `open_project` / `configure_project`.
 
 mod fsops;
+mod library;
 mod project;
 mod validate;
 
@@ -30,6 +31,8 @@ impl AppState {
 
     fn set_project(&self, p: &ProjectInfo) {
         *self.project.lock().unwrap() = Some(p.clone());
+        // The name index: built in the background, kept current by a file watcher.
+        library::start(p);
         let _ = std::fs::write(&self.last_project_file, &p.root);
     }
 }
@@ -119,6 +122,17 @@ async fn apply_change(path: String, expected: String, change: Change, app: AppHa
     .await
 }
 
+/// The spells, monster stat blocks and magic items refs can be made to.
+#[tauri::command(rename_all = "snake_case")]
+async fn library(app: AppHandle) -> Result<Vec<shared::prose::LibEntry>, AppError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let p = state.project()?;
+        Ok(library::library(&p))
+    })
+    .await
+}
+
 /// What each <reference> entry of the file prints, for the paragraph preview.
 #[tauri::command(rename_all = "snake_case")]
 async fn ref_index(path: String, app: AppHandle) -> Result<shared::inline::RefIndex, AppError> {
@@ -181,6 +195,7 @@ pub fn run() {
             open_file,
             apply_change,
             ref_index,
+            library,
             find_logo,
             pick_folder
         ])

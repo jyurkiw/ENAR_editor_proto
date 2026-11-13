@@ -11,11 +11,11 @@
 use leptos::ev::MouseEvent;
 use leptos::html;
 use leptos::prelude::*;
-use shared::inline::RefCtx as Preview;
 use shared::item;
 use shared::statblock::{self as sb, El, StatEdit, ROOT};
 
 use crate::family_form::confirm;
+use crate::prose_editor::ChipEditor;
 use crate::reference_form::ReferenceForm;
 use crate::state::DocTab;
 use crate::statblock_form::{
@@ -27,7 +27,6 @@ use crate::statblock_form::{
 #[derive(Clone, Copy)]
 struct Refs {
     refs: RefCtx,
-    preview: Memo<Preview>,
 }
 
 fn refs() -> Refs {
@@ -41,10 +40,10 @@ fn find(m: &El, path: &[usize]) -> Option<El> {
 /// A prose box with the item's tags and the entry ref tools: an optional child `tag` of
 /// the element at `loc`, or (None) that element's own text.
 fn prose(c: Card, loc: Loc, tag: Option<&'static str>, label: &'static str, hint: &'static str) -> AnyView {
-    let Refs { refs, preview } = refs();
+    let Refs { refs, .. } = refs();
     match tag {
-        Some(t) => view! { <Prose c loc tag=t label hint refs tags=item::INLINE preview/> }.into_any(),
-        None => view! { <Prose c loc label hint refs tags=item::INLINE preview/> }.into_any(),
+        Some(t) => view! { <Prose c loc tag=t label hint refs/> }.into_any(),
+        None => view! { <Prose c loc label hint refs/> }.into_any(),
     }
 }
 
@@ -411,9 +410,14 @@ fn cell_input(c: Card, section: &'static str, row: Option<usize>, col: usize) ->
         };
         cell.unwrap_or_default()
     };
-    view! {
-        <input type="text" class="cell" prop:value=get on:input=move |ev| {
-            let v = event_target_value(&ev);
+    // The column's heading says what the cell holds ("Spell": spells first).
+    let heading = Signal::derive(move || {
+        if row.is_none() {
+            return String::new();
+        }
+        c.m().kid("header").and_then(|h| h.all("th").get(col).map(|x| x.text.clone())).unwrap_or_default()
+    });
+    let put = move |v: String| {
             c.change(|e| {
                 let (host, tag) = match row {
                     None => (e.kid_mut("header"), "th"),
@@ -428,8 +432,8 @@ fn cell_input(c: Card, section: &'static str, row: Option<usize>, col: usize) ->
                     }
                 }
             })
-        }/>
-    }
+    };
+    view! { <ChipEditor value=Signal::derive(get) set=Callback::new(put) hint=heading single=true/> }
 }
 
 /// A section's rows as grid rows, with move and delete.
@@ -550,7 +554,7 @@ fn TableGrid(c: Card) -> impl IntoView {
             <button type="button" class="small" on:click=add_col>"+ Column"</button>
             <button type="button" class="small" on:click=move |_| add_row("footer")>"+ Footer row"</button>
             <button type="button" class="small" on:click=toggle_header>{move || if has_header.get() { "Remove header row" } else { "+ Header row" }}</button>
-            <span class="hint">"Cells are XML (inline tags allowed); rowspan and colspan are kept as written."</span>
+            <span class="hint">"Cells take refs and tags (＋ or Ctrl+K); rowspan and colspan are kept as written."</span>
         </div>
     }
 }
@@ -617,12 +621,8 @@ pub fn ItemPage(tab: DocTab) -> impl IntoView {
                 .unwrap_or_default()
         })
     });
-    let preview = Memo::new(move |_| {
-        let d = tab.doc();
-        let index = tab.refs.with(|r| r.as_ref().and_then(|r| r.as_ref().ok().cloned()));
-        Preview::from_doc(&d.source, &d.nodes, index)
-    });
-    provide_context(Refs { refs: entries, preview });
+    provide_context(Refs { refs: entries });
+    crate::prose_editor::provide_env(tab, shared::prose::Palette::MagicItem, None);
     // The tree's selection, as a path from the root.
     let focus = Memo::new(move |_| {
         let sel = tab.selected.get();

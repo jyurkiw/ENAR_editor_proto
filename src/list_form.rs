@@ -12,7 +12,7 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
-use crate::inline_refs::{RefTools, RefToolsView};
+use crate::prose_editor::ChipEditor;
 use shared::inline::RefCtx;
 use crate::state::DocTab;
 
@@ -111,6 +111,7 @@ fn ListInfo(tab: DocTab, at: StoredValue<ListAt>, view: Memo<Option<ListView>>) 
 
 #[component]
 fn ItemRow(tab: DocTab, at: StoredValue<ListAt>, n: usize, items: Memo<Vec<String>>, drag: Drag, numbered: Memo<bool>, refctx: Memo<RefCtx>) -> impl IntoView {
+    let _ = refctx;
     let base = Memo::new(move |_| items.with(|i| i.get(n).cloned().unwrap_or_default()));
     let count = Memo::new(move |_| items.with(|i| i.len()));
     let key = move || (at.get_value(), n);
@@ -148,8 +149,6 @@ fn ItemRow(tab: DocTab, at: StoredValue<ListAt>, n: usize, items: Memo<Vec<Strin
             f.remove(&k);
         });
     };
-    let ta = NodeRef::<html::Textarea>::new();
-    let tools = RefTools::new(Signal::derive(text), Callback::new(move |s: String| set(s)), ta, refctx);
 
     let add_below = move |_: MouseEvent| {
         tab.li_focus.set(Some(n + 1));
@@ -224,14 +223,12 @@ fn ItemRow(tab: DocTab, at: StoredValue<ListAt>, n: usize, items: Memo<Vec<Strin
                 <span class="li-marker">{move || if numbered.get() { format!("{}.", n + 1) } else { "•".into() }}</span>
             </div>
             <div class="block-main">
-                <textarea node_ref=ta class="p-text li-text" id=format!("li-{n}") spellcheck="true" rows=2 placeholder="(empty item)"
-                    prop:value=text on:input=move |ev| set(event_target_value(&ev))></textarea>
-                <RefToolsView tools tab/>
+                <ChipEditor value=Signal::derive(text) set=Callback::new(move |s: String| set(s)) placeholder="(empty item)"
+                    id=Signal::derive(move || format!("li-{n}"))/>
                 <div class="p-bar">
                     {move || failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
                     {move || (dirty() && !failed()).then(|| view! { <span class="state-badge">"unapplied"</span> })}
                     <span class="spacer"></span>
-                    <button class="small" title="Insert a ref tag at the cursor" on:click=move |_| tools.open_insert()>"+ Ref"</button>
                     <button class="small" title="Insert an empty item below" disabled=busy on:click=add_below>"+ item below"</button>
                     <button class="small" disabled=move || !dirty() || busy() on:click=move |_| revert()>"Revert"</button>
                     <button class="small primary" disabled=move || !dirty() || busy() on:click=move |_| do_apply()>"Apply"</button>
@@ -293,7 +290,7 @@ pub fn ListForm(tab: DocTab, at: ListAt) -> impl IntoView {
                     <div class="table-card">
                         <div class="table-card-title">
                             {move || format!("Items ({})", items.with(|i| i.len()))}
-                            <span class="hint">"Each item is its XML: inline tags like <b> and <monsterRef/> are kept. Write & as &amp;. The line under an item shows it as printed; click a ref to edit it."</span>
+                            <span class="hint">"Type text; refs and tags show as chips. Click a chip to edit it; ＋ or Ctrl+K inserts one; Ctrl+B and Ctrl+I bold and italicize. Ctrl+Enter applies."</span>
                         </div>
                         <div class="th-tools">
                             <button class="small" disabled=busy on:click=add_first>"+ Item at the start"</button>

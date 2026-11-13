@@ -273,7 +273,8 @@ fn check_text(
 
 pub fn open_file(path: &str, project: &ProjectInfo, v: &Validator) -> Result<OpenedDoc, AppError> {
     let ReadFile { file, name, source } = read_file(path)?;
-    let (parsed, kind, xsd, warnings) = check_text(&file, &name, &source, project)?;
+    let (parsed, kind, xsd, mut warnings) = check_text(&file, &name, &source, project)?;
+    warnings.extend(clash_warnings(&file, &source, project));
 
     // 4. Validate against the XSD.
     let validation = match run_lxml(v, &project.compiler_dir, &file, &xsd) {
@@ -317,6 +318,12 @@ pub fn apply_edit(
     if new == source {
         return Ok(ApplyResult::Saved { doc: open_parsed(file, name, source, project)? });
     }
+    // A shortName this edit adds or changes mustn't read like another thing's name.
+    let clashes = crate::library::clashes(project, &file, &new, Some(&source));
+    if !clashes.is_empty() {
+        let problems = clashes.into_iter().map(|(line, message)| Problem { line: Some(line), message }).collect();
+        return Ok(ApplyResult::Invalid { problems });
+    }
     let xsd = match check_text(&file, &name, &new, project) {
         Ok((_, _, xsd, _)) => xsd,
         Err(e) => {
@@ -338,6 +345,7 @@ pub fn apply_edit(
     let result = match run_lxml(v, &project.compiler_dir, &tmp, &xsd) {
         Outcome::Valid => std::fs::rename(&tmp, &file)
             .map_err(|e| AppError::new(format!("Can't replace {name}: {e}")))
+            .inspect(|_| crate::library::update_file(&file))
             .and_then(|_| open_parsed(file.clone(), name.clone(), new, project))
             .map(|doc| ApplyResult::Saved { doc }),
         Outcome::Invalid(problems) => Ok(ApplyResult::Invalid { problems }),
@@ -350,9 +358,15 @@ pub fn apply_edit(
     result
 }
 
+/// Warnings for shortNames in the file that read like another thing's name.
+fn clash_warnings(file: &Path, source: &str, project: &ProjectInfo) -> Vec<String> {
+    crate::library::clashes(project, file, source, None).into_iter().map(|(line, m)| format!("Line {line}: {m}")).collect()
+}
+
 /// The doc for text that has just been validated.
 fn open_parsed(file: PathBuf, name: String, source: String, project: &ProjectInfo) -> Result<OpenedDoc, AppError> {
-    let (parsed, kind, xsd, warnings) = check_text(&file, &name, &source, project)?;
+    let (parsed, kind, xsd, mut warnings) = check_text(&file, &name, &source, project)?;
+    warnings.extend(clash_warnings(&file, &source, project));
     Ok(OpenedDoc {
         path: path_str(&file),
         kind,

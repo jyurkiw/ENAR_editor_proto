@@ -79,6 +79,10 @@ pub async fn create_magic_item_file(req: &NewMagicItem) -> Result<String, AppErr
     invoke("create_magic_item_file", &A { req }).await
 }
 
+pub async fn library() -> Result<Vec<shared::prose::LibEntry>, AppError> {
+    invoke("library", &NoArgs {}).await
+}
+
 pub async fn open_file(path: &str) -> Result<OpenedDoc, AppError> {
     invoke("open_file", &PathArg { path }).await
 }

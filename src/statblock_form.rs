@@ -16,13 +16,13 @@ use leptos::html;
 use leptos::prelude::*;
 use shared::family;
 use shared::inline;
-use shared::statblock::{self as sb, El, Field, StatEdit};
+use shared::statblock::{self as sb, El, StatEdit};
 use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
 use crate::family_form::{bar, confirm, json, Draft};
-use crate::inline_refs::{select_range, selection, RefTools, RefToolsView};
+use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 
 pub(crate) fn edit(tab: DocTab, e: StatEdit) {
@@ -137,6 +137,8 @@ pub(crate) fn keys(c: Card) -> impl Fn(KeyboardEvent) {
         let target = ev.target();
         let in_input = target.as_ref().and_then(|t| t.dyn_ref::<web_sys::HtmlInputElement>()).is_some_and(|i| i.type_() == "text");
         let in_area = target.as_ref().and_then(|t| t.dyn_ref::<web_sys::HtmlTextAreaElement>()).is_some();
+        // A chip editor: Enter applies, like a one-line field.
+        let in_input = in_input || target.as_ref().and_then(|t| t.dyn_ref::<web_sys::HtmlElement>()).is_some_and(|e| e.is_content_editable());
         if ev.key() == "Escape" {
             c.d.revert()
         } else if ev.key() == "Enter" && (in_input || (in_area && ev.ctrl_key())) {
@@ -246,8 +248,9 @@ fn ref_ctx(mon: Memo<Option<El>>) -> RefCtx {
     })
 }
 
-/// Prose: a text box of XML with an Insert menu. `tag` names an optional child of the
-/// element at `loc` (empty removes it, unless `keep`); None edits the element's own text.
+/// Prose: a chip editor (see [`crate::prose_editor`]). `tag` names an optional child of
+/// the element at `loc` (empty removes it, unless `keep`); None edits the element's own
+/// text. The page provides the editor's environment.
 #[component]
 pub(crate) fn Prose(
     c: Card,
@@ -258,13 +261,11 @@ pub(crate) fn Prose(
     #[prop(optional)] ph: &'static str,
     #[prop(optional)] keep: bool,
     refs: RefCtx,
-    /// The Insert menu's tags (default: a stat block's).
-    #[prop(optional)] tags: Option<&'static [sb::InlineSpec]>,
-    /// The file's entry refs, for the live preview and the entry ref tools (magic items).
-    #[prop(optional)] preview: Option<Memo<shared::inline::RefCtx>>,
+    /// What the box holds, for ranking refs (a table column's heading).
+    #[prop(optional, into)]
+    context: Signal<String>,
 ) -> impl IntoView {
-    let specs: &'static [sb::InlineSpec] = tags.unwrap_or(sb::INLINE);
-    let spec_of = move |k: &str| specs.iter().find(|s| s.tag == k);
+    let _ = refs;
     let get = move || {
         c.m().at(&loc.s[..loc.n]).map(|e| match tag {
             Some(t) => e.opt_text(t),
@@ -277,123 +278,10 @@ pub(crate) fn Prose(
             None => e.text = v,
         })
     };
-    let ta = NodeRef::<html::Textarea>::new();
-    let kind = RwSignal::new(String::new());
-    let vals = RwSignal::new(Vec::<(String, String)>::new());
-    let body = RwSignal::new(String::new());
-    let insert = move || {
-        let k = kind.get_untracked();
-        let Some(spec) = spec_of(&k) else { return };
-        let v = vals.get_untracked();
-        let attrs: Vec<(String, String)> = spec.attrs.iter().map(|(a, _, _)| (a.to_string(), v.iter().find(|(x, _)| x == a).map(|(_, y)| y.clone()).unwrap_or_default())).collect();
-        let xml = sb::inline_xml_with(spec, &attrs, &body.get_untracked());
-        let len = xml.len();
-        let text = get();
-        let (a, b) = selection(ta, &text);
-        let new = format!("{}{xml}{}", &text[..a], &text[b..]);
-        put(new.clone());
-        kind.set(String::new());
-        request_animation_frame(move || select_range(ta, &new, a, a + len));
-    };
-    let tools = preview.map(|ctx| RefTools::new(Signal::derive(get), Callback::new(put), ta, ctx));
-    let open_kind = move |k: String| {
-        if k == "__ref" {
-            kind.set(String::new());
-            if let Some(t) = tools {
-                t.open_insert();
-            }
-            return;
-        }
-        let text = get();
-        let (a, b) = selection(ta, &text);
-        body.set(text.get(a..b).unwrap_or_default().to_string());
-        vals.set(Vec::new());
-        let instant = spec_of(&k).is_some_and(|s| s.attrs.is_empty() && s.text.is_none());
-        kind.set(k);
-        if instant {
-            insert();
-        }
-    };
-    let missing = move || {
-        let k = kind.get();
-        let v = vals.get();
-        spec_of(&k).is_some_and(|s| {
-            s.attrs.iter().any(|(a, _, req)| *req && v.iter().find(|(x, _)| x == a).is_none_or(|(_, y)| y.trim().is_empty()))
-                || (s.text.is_some() && body.get().trim().is_empty())
-        })
-    };
-    let val = move |a: &'static str| vals.with(|v| v.iter().find(|(x, _)| x == a).map(|(_, y)| y.clone()).unwrap_or_default());
-    let set_val = move |a: &'static str, y: String| {
-        vals.update(|v| match v.iter_mut().find(|(x, _)| x == a) {
-            Some(p) => p.1 = y,
-            None => v.push((a.to_string(), y)),
-        })
-    };
-    let field_view = move |a: &'static str, f: Field, req: bool| -> AnyView {
-        let label = if req { format!("{a} *") } else { a.to_string() };
-        let control = match f {
-            Field::Pick(opts) => view! {
-                <select prop:value=move || val(a) on:change=move |ev| set_val(a, event_target_value(&ev))>
-                    <option value="">"—"</option>
-                    {opts.iter().map(|o| view! { <option value=*o>{*o}</option> }).collect_view()}
-                </select>
-            }.into_any(),
-            Field::Ref(tags) => view! {
-                <select prop:value=move || val(a) on:change=move |ev| set_val(a, event_target_value(&ev))>
-                    <option value="">"—"</option>
-                    {move || refs.get().into_iter().filter(|(t, _, _)| tags.contains(&t.as_str())).map(|(t, id, name)| {
-                        view! { <option value=id.clone()>{format!("{name} ({t} {id})")}</option> }
-                    }).collect_view()}
-                </select>
-            }.into_any(),
-            Field::Bool => view! {
-                <input type="checkbox" prop:checked=move || val(a) == "true"
-                    on:change=move |ev| set_val(a, if event_target_checked(&ev) { "true".into() } else { String::new() })/>
-            }.into_any(),
-            _ => view! { <input type="text" prop:value=move || val(a) on:input=move |ev| set_val(a, event_target_value(&ev))/> }.into_any(),
-        };
-        view! { <label class="field small-field"><span class="field-label">{label}</span>{control}</label> }.into_any()
-    };
     view! {
         <div class="field prose-field">
-            <span class="field-label">{label}
-                <select class="insert-pick" title="Insert an inline tag at the cursor (around the selected text, for tags with text)"
-                    prop:value=move || kind.get() on:change=move |ev| open_kind(event_target_value(&ev))>
-                    <option value="">"Insert…"</option>
-                    {preview.is_some().then(|| view! { <option value="__ref">"Entry ref (monster, spell, item, data)…"</option> })}
-                    {specs.iter().map(|s| view! { <option value=s.tag>{s.label}</option> }).collect_view()}
-                </select>
-            </span>
-            <textarea node_ref=ta class="p-text" spellcheck="true" rows=2 placeholder=ph prop:value=get on:input=move |ev| put(event_target_value(&ev))></textarea>
-            {move || {
-                let k = kind.get();
-                spec_of(&k).filter(|s| !(s.attrs.is_empty() && s.text.is_none())).map(|s| {
-                    view! {
-                        <div class="insert-panel">
-                            <span class="insert-title">{format!("<{}>", s.tag)}</span>
-                            {s.text.map(|t| match t {
-                                Field::Pick(opts) => view! {
-                                    <label class="field small-field"><span class="field-label">"text *"</span>
-                                        <select prop:value=move || body.get() on:change=move |ev| body.set(event_target_value(&ev))>
-                                            <option value="">"—"</option>
-                                            {opts.iter().map(|o| view! { <option value=*o>{*o}</option> }).collect_view()}
-                                        </select>
-                                    </label>
-                                }.into_any(),
-                                _ => view! {
-                                    <label class="field small-field"><span class="field-label">"text *"</span>
-                                        <input type="text" prop:value=move || body.get() on:input=move |ev| body.set(event_target_value(&ev))/>
-                                    </label>
-                                }.into_any(),
-                            })}
-                            {s.attrs.iter().map(|(a, f, req)| field_view(*a, *f, *req)).collect_view()}
-                            <button type="button" class="small primary" disabled=missing on:click=move |_| insert()>"Insert"</button>
-                            <button type="button" class="small" on:click=move |_| kind.set(String::new())>"Cancel"</button>
-                        </div>
-                    }.into_any()
-                })
-            }}
-            {tools.map(|t| view! { <RefToolsView tools=t tab=c.tab/> })}
+            <span class="field-label">{label}</span>
+            <ChipEditor value=Signal::derive(get) set=Callback::new(put) placeholder=ph hint=context/>
             {(!hint.is_empty()).then(|| view! { <span class="hint">{hint}</span> })}
         </div>
     }
@@ -632,12 +520,16 @@ fn EntryCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoView 
 }
 
 fn p_row(c: Card, loc: Loc, _i: usize) -> AnyView {
-    view! {
-        <textarea class="p-text" rows=2 placeholder="(empty paragraph)"
-            prop:value=move || c.m().at(&loc.s[..loc.n]).map(|e| e.text.clone()).unwrap_or_default()
-            on:input=move |ev| { let v = event_target_value(&ev); c.at(loc, |e| e.text = v) }></textarea>
-    }
-    .into_any()
+    let get = Signal::derive(move || c.m().at(&loc.s[..loc.n]).map(|e| e.text.clone()).unwrap_or_default());
+    let put = Callback::new(move |v: String| c.at(loc, |e| e.text = v));
+    view! { <ChipEditor value=get set=put placeholder="(empty paragraph)"/> }.into_any()
+}
+
+/// One table cell: a one-line chip box.
+fn td_row(c: Card, l: Loc, _i: usize) -> AnyView {
+    let get = Signal::derive(move || c.m().at(&l.s[..l.n]).map(|e| e.text.clone()).unwrap_or_default());
+    let put = Callback::new(move |v: String| c.at(l, |e| e.text = v));
+    view! { <ChipEditor value=get set=put single=true/> }.into_any()
 }
 
 fn new_p(_: &El) -> El {
@@ -694,7 +586,7 @@ fn OwnPart(tab: DocTab, child: usize, mon: Memo<Option<El>>, tag: &'static str, 
             <Rows c loc=r container="header" tag="dh" title="Headings" hint="The first is the die (1d6)." min=1
                 make=|_| El::new("dh")
                 row=|c, l, _| view! { <div class="field-row">{text_in(c, l, "", "Heading", "", "")}</div> }.into_any()/>
-            <Rows c loc=r container="body" tag="tr" title="Rows" hint="Cells are XML, one per heading, separated by |."
+            <Rows c loc=r container="body" tag="tr" title="Rows" hint="One cell per heading."
                 min=1 make=|m: &El| {
                     let n = m.at(&[("body", 0)]).map(|b| b.all("tr").len()).unwrap_or(0);
                     let cols = m.at(&[("header", 0)]).map(|h| h.all("dh").len()).unwrap_or(2).max(1);
@@ -702,22 +594,7 @@ fn OwnPart(tab: DocTab, child: usize, mon: Memo<Option<El>>, tag: &'static str, 
                     for _ in 1..cols { tr.kids.push(El::new("td")); }
                     tr
                 }
-                row=|c, l, _| view! {
-                    <input type="text" class="wide"
-                        prop:value=move || c.m().at(&l.s[..l.n]).map(|t| t.all("td").iter().map(|d| d.text.clone()).collect::<Vec<_>>().join(" | ")).unwrap_or_default()
-                        on:input=move |ev| {
-                            let v = event_target_value(&ev);
-                            c.at(l, |t| {
-                                let cells: Vec<String> = v.split('|').map(|s| s.trim().to_string()).collect();
-                                let mut old = t.kids.iter().filter(|k| k.tag == "td").cloned().collect::<Vec<_>>().into_iter();
-                                t.kids = cells.iter().map(|s| {
-                                    let mut d = old.next().unwrap_or_else(|| El::new("td"));
-                                    d.text = s.clone();
-                                    d
-                                }).collect();
-                            })
-                        }/>
-                }.into_any()/>
+                row=|c, l, _| view! { <Rows c loc=l tag="td" title="Cells" min=1 make=|_| El::new("td") row=td_row/> }.into_any()/>
             <div class="field-row">{text_in(c, r, "id", "Id", "(none)", "")}</div>
         }.into_any(),
     };
@@ -1149,15 +1026,14 @@ fn rider_row(c: Card, l: Loc, _i: usize) -> AnyView {
 
 #[component]
 fn RiderProse(c: Card, l: Loc) -> impl IntoView {
-    // Riders' prose has no Insert menu (the item's ref list isn't to hand here).
-    let get = move |t: &'static str| move || c.m().at(&l.s[..l.n]).map(|e| e.opt_text(t)).unwrap_or_default();
-    let put = move |t: &'static str| move |ev: leptos::ev::Event| { let v = event_target_value(&ev); c.at(l, |e| e.set_opt_text(t, &v, false)) };
+    let get = move |t: &'static str| Signal::derive(move || c.m().at(&l.s[..l.n]).map(|e| e.opt_text(t)).unwrap_or_default());
+    let put = move |t: &'static str| Callback::new(move |v: String| c.at(l, |e| e.set_opt_text(t, &v, false)));
     view! {
         <div class="field-row">
-            <label class="field grow"><span class="field-label">"After its damage"</span>
-                <input type="text" placeholder="(none) if the target is Prone" prop:value=get("chase") on:input=put("chase")/></label>
-            <label class="field grow"><span class="field-label">"Or instead, all of it"</span>
-                <input type="text" placeholder="(none)" prop:value=get("override") on:input=put("override")/></label>
+            <div class="field grow"><span class="field-label">"After its damage"</span>
+                <ChipEditor value=get("chase") set=put("chase") placeholder="(none) if the target is Prone" single=true/></div>
+            <div class="field grow"><span class="field-label">"Or instead, all of it"</span>
+                <ChipEditor value=get("override") set=put("override") placeholder="(none)" single=true/></div>
         </div>
     }
 }
@@ -1502,6 +1378,7 @@ fn LegendaryUses(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoV
 pub fn StatPage(tab: DocTab, child: usize) -> impl IntoView {
     let mon = Memo::new(move |_| sb::read(&tab.doc().source, child));
     let refs = ref_ctx(mon);
+    crate::prose_editor::provide_env(tab, shared::prose::Palette::StatBlock, Some(refs));
     // The tree's selection inside this stat block, as a path from it.
     let focus = Memo::new(move |_| {
         let sel = tab.selected.get();

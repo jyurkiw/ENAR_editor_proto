@@ -15,7 +15,7 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
-use crate::inline_refs::{RefTools, RefToolsView};
+use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 
 fn highlighted(text: &str) -> impl IntoView {
@@ -192,6 +192,8 @@ fn BlockRow(
     drag: Drag,
     refctx: Memo<RefCtx>,
 ) -> impl IntoView {
+    // Chips name their refs from the tab's prose environment now.
+    let _ = refctx;
     let block = Memo::new(move |_| blocks.with(|b| b.get(pos).cloned()));
     let child = move || block.get().map(|b| b.child).unwrap_or(0);
     // A memo, so a row re-renders only when it changes kind (not on every edit).
@@ -237,10 +239,6 @@ fn BlockRow(
     let add_after = move |_: MouseEvent| {
         apply(tab, Change::Block { edit: BlockEdit::AddP { at: at.get_value(), after: Some(child()) } });
     };
-    // Inline refs: the preview, the selected tag's panel, and the Insert panel.
-    let ta = NodeRef::<html::Textarea>::new();
-    let tools = RefTools::new(Signal::derive(text), Callback::new(move |s: String| set_text(s)), ta, refctx);
-    let open_insert = move |_: MouseEvent| tools.open_insert();
 
     let delete = move |_: MouseEvent| {
         let empty = block.get_untracked().is_some_and(|b| b.text.trim().is_empty());
@@ -312,14 +310,12 @@ fn BlockRow(
             {move || if is_p.get() {
                 view! {
                     <div class="block-main">
-                        <textarea node_ref=ta class="p-text" id=move || format!("p-{}", child()) spellcheck="true"
-                            prop:value=text on:input=move |ev| set_text(event_target_value(&ev))></textarea>
-                        <RefToolsView tools tab/>
+                        <ChipEditor value=Signal::derive(text) set=Callback::new(move |s: String| set_text(s)) placeholder="(empty paragraph)"
+                            id=Signal::derive(move || format!("p-{}", child()))/>
                         <div class="p-bar">
                             {move || failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
                             {move || (dirty() && !failed()).then(|| view! { <span class="state-badge">"unapplied"</span> })}
                             <span class="spacer"></span>
-                            <button class="small" title="Insert a ref tag at the cursor" on:click=open_insert>"+ Ref"</button>
                             <button class="small" title="Insert an empty paragraph below" disabled=busy on:click=add_after>"+ ¶ below"</button>
                             {add_menu(tab, at, "+ other below…", move || Some(child()))}
                             <button class="small" disabled=move || !dirty() || busy() on:click=move |_| revert()>"Revert"</button>
@@ -461,7 +457,7 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
                     <HeaderForm tab at base=header links/>
                     <div class="block-body">
                         <div class="body-tools">
-                            <span class="hint">"Each paragraph is its XML: inline tags like <b> and <monsterRef/> are kept. Write & as &amp;. The line under a paragraph shows it as printed; click a ref to edit it."</span>
+                            <span class="hint">"Type text; refs and tags show as chips. Click a chip to edit it; ＋ or Ctrl+K inserts one; Ctrl+B and Ctrl+I bold and italicize. Ctrl+Enter applies."</span>
                             <span class="spacer"></span>
                             <button class="small" disabled=busy on:click=add_first>"+ ¶ at start"</button>
                             {add_menu(tab, at, "+ other at start…", || None)}

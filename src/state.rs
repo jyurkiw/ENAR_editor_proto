@@ -306,6 +306,9 @@ pub struct AppCtx {
     pub open_dirs: RwSignal<HashSet<String>>,
     pub menu: RwSignal<Option<Menu>>,
     pub dialog: RwSignal<Option<Dialog>>,
+    /// The spells, stat blocks and items refs can be made to (read once, when the ref
+    /// generator first needs it).
+    pub library: RwSignal<Option<Result<Vec<shared::prose::LibEntry>, String>>>,
     next_id: StoredValue<u32>,
 }
 
@@ -326,6 +329,7 @@ impl AppCtx {
             open_dirs: RwSignal::new(HashSet::new()),
             menu: RwSignal::new(None),
             dialog: RwSignal::new(None),
+            library: RwSignal::new(None),
             next_id: StoredValue::new(1),
         }
     }

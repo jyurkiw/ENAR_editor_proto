@@ -226,6 +226,8 @@ fn RawEditor(tab: DocTab, path: StoredValue<Vec<usize>>, tag: StoredValue<String
 /// editor (stat blocks, for now). Pages with a form keep the element's raw XML below.
 #[component]
 pub fn MonsterForm(tab: DocTab, path: Vec<usize>, tag: String) -> impl IntoView {
+    // The family's prose (a stat block's page gives its own, with its refs).
+    crate::prose_editor::provide_env(tab, shared::prose::Palette::StatBlock, None);
     let fam = Memo::new(move |_| family::read(&tab.doc().source));
     // The part (a root child) this element is in, if any.
     let top = path.first().copied().and_then(|c| {

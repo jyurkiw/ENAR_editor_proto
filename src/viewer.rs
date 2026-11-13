@@ -153,6 +153,13 @@ pub fn Viewer() -> impl IntoView {
 
 #[component]
 fn TabView(tab: DocTab) -> impl IntoView {
+    // Prose boxes in this tab: chips named from its file (a stat block's page gives its own).
+    let palette = match tab.doc_untracked().kind {
+        shared::DocKind::Supplement => shared::prose::Palette::Supplement,
+        shared::DocKind::Monsters => shared::prose::Palette::StatBlock,
+        shared::DocKind::MagicItem => shared::prose::Palette::MagicItem,
+    };
+    crate::prose_editor::provide_env(tab, palette, None);
     let selected = tab.selected;
     let kind = Memo::new(move |_| form_kind(&tab.doc(), selected.get()));
     // Which form is mounted: the reference editor stays mounted whichever of its
