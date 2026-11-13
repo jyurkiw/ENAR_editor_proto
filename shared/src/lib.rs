@@ -12,6 +12,7 @@ pub mod edit;
 pub mod element;
 pub mod family;
 pub mod inline;
+pub mod item;
 pub mod list;
 pub mod monster;
 pub mod reference;
@@ -22,6 +23,8 @@ pub mod xml;
 
 /// The schema monster files use.
 pub const MONSTER_SCHEMA: &str = "monster-template-schema.xsd";
+/// The schema magic item files use.
+pub const MAGIC_ITEM_SCHEMA: &str = "magic-item-template-schema.xsd";
 
 /// What kind of file a tab holds: its root element and schema.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +34,8 @@ pub enum DocKind {
     Supplement,
     /// `<monsters>`: a family of stat blocks.
     Monsters,
+    /// `<magicItem>`: one magic item.
+    MagicItem,
 }
 
 impl DocKind {
@@ -38,6 +43,7 @@ impl DocKind {
         match tag {
             "supplement" => Some(DocKind::Supplement),
             "monsters" => Some(DocKind::Monsters),
+            "magicItem" => Some(DocKind::MagicItem),
             _ => None,
         }
     }
@@ -45,12 +51,14 @@ impl DocKind {
         match self {
             DocKind::Supplement => SUPPLEMENT_SCHEMA,
             DocKind::Monsters => MONSTER_SCHEMA,
+            DocKind::MagicItem => MAGIC_ITEM_SCHEMA,
         }
     }
     pub fn root(self) -> &'static str {
         match self {
             DocKind::Supplement => "supplement",
             DocKind::Monsters => "monsters",
+            DocKind::MagicItem => "magicItem",
         }
     }
     /// "supplement", "monster file".
@@ -58,6 +66,7 @@ impl DocKind {
         match self {
             DocKind::Supplement => "supplement",
             DocKind::Monsters => "monster file",
+            DocKind::MagicItem => "magic item file",
         }
     }
 }
@@ -75,6 +84,20 @@ pub struct NewMonsterFile {
     /// The first stat block's id and name.
     pub id: String,
     pub name: String,
+}
+
+/// Arguments for creating a new magic item file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewMagicItem {
+    /// The folder to create it in (the project root or one under it).
+    pub parent: String,
+    /// The file name, with or without ".xml".
+    pub file: String,
+    pub id: String,
+    pub name: String,
+    /// itemTypeType and rarityType values: "wondrous-item", "uncommon".
+    pub item_type: String,
+    pub rarity: String,
 }
 
 /// The project settings file at the root of a project directory.

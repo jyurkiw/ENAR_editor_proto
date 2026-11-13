@@ -22,10 +22,10 @@ use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
 use crate::family_form::{bar, confirm, json, Draft};
-use crate::inline_refs::{select_range, selection};
+use crate::inline_refs::{select_range, selection, RefTools, RefToolsView};
 use crate::state::DocTab;
 
-fn edit(tab: DocTab, e: StatEdit) {
+pub(crate) fn edit(tab: DocTab, e: StatEdit) {
     apply(tab, Change::Stat { edit: e });
 }
 
@@ -44,29 +44,29 @@ pub fn draft_key(e: &StatEdit) -> Option<String> {
 
 /// Where an element is in a card's El: steps of (child tag, which of those).
 #[derive(Clone, Copy, PartialEq)]
-struct Loc {
-    s: [(&'static str, usize); 6],
-    n: usize,
+pub(crate) struct Loc {
+    pub(crate) s: [(&'static str, usize); 6],
+    pub(crate) n: usize,
 }
 
 impl Loc {
-    const ROOT: Loc = Loc { s: [("", 0); 6], n: 0 };
-    fn at(mut self, tag: &'static str, i: usize) -> Loc {
+    pub(crate) const ROOT: Loc = Loc { s: [("", 0); 6], n: 0 };
+    pub(crate) fn at(mut self, tag: &'static str, i: usize) -> Loc {
         self.s[self.n] = (tag, i);
         self.n += 1;
         self
     }
-    fn get_mut(self, e: &mut El) -> Option<&mut El> {
+    pub(crate) fn get_mut(self, e: &mut El) -> Option<&mut El> {
         e.at_mut(&self.s[..self.n])
     }
 }
 
 /// A card: a draft of one element, applied whole.
 #[derive(Clone, Copy)]
-struct Card {
-    tab: DocTab,
+pub(crate) struct Card {
+    pub(crate) tab: DocTab,
     child: usize,
-    d: Draft,
+    pub(crate) d: Draft,
     scope: StoredValue<Option<Vec<String>>>,
     norm: Option<fn(&mut El)>,
     /// The draft (or the file's element), read once per change: the fields read this,
@@ -90,7 +90,7 @@ fn bad_prose(m: &El) -> Option<String> {
 }
 
 impl Card {
-    fn new(tab: DocTab, child: usize, el: Memo<Option<El>>, scope: Option<Vec<String>>, norm: Option<fn(&mut El)>) -> Self {
+    pub(crate) fn new(tab: DocTab, child: usize, el: Memo<Option<El>>, scope: Option<Vec<String>>, norm: Option<fn(&mut El)>) -> Self {
         let base = Memo::new(move |_| el.with(|e| e.as_ref().map(json).unwrap_or_default()));
         let path = el.with_untracked(|e| e.as_ref().and_then(|e| e.path.clone()).unwrap_or_default());
         let k = key(child, &path, scope.as_deref());
@@ -99,20 +99,20 @@ impl Card {
         let bad = Memo::new(move |_| model.with(bad_prose));
         Card { tab, child, d, scope: StoredValue::new(scope), norm, model, bad }
     }
-    fn m(&self) -> El {
+    pub(crate) fn m(&self) -> El {
         self.model.get()
     }
-    fn change(&self, f: impl FnOnce(&mut El)) {
+    pub(crate) fn change(&self, f: impl FnOnce(&mut El)) {
         self.d.change(f)
     }
-    fn at(&self, loc: Loc, f: impl FnOnce(&mut El)) {
+    pub(crate) fn at(&self, loc: Loc, f: impl FnOnce(&mut El)) {
         self.change(|e| {
             if let Some(x) = loc.get_mut(e) {
                 f(x)
             }
         })
     }
-    fn busy(&self) -> Signal<bool> {
+    pub(crate) fn busy(&self) -> Signal<bool> {
         let tab = self.tab;
         Signal::derive(move || tab.applying.get())
     }
@@ -120,7 +120,7 @@ impl Card {
     fn bad(&self) -> Option<String> {
         self.bad.get()
     }
-    fn apply(&self) {
+    pub(crate) fn apply(&self) {
         if !self.d.dirty() || self.bad().is_some() {
             return;
         }
@@ -132,7 +132,7 @@ impl Card {
     }
 }
 
-fn keys(c: Card) -> impl Fn(KeyboardEvent) {
+pub(crate) fn keys(c: Card) -> impl Fn(KeyboardEvent) {
     move |ev: KeyboardEvent| {
         let target = ev.target();
         let in_input = target.as_ref().and_then(|t| t.dyn_ref::<web_sys::HtmlInputElement>()).is_some_and(|i| i.type_() == "text");
@@ -147,7 +147,7 @@ fn keys(c: Card) -> impl Fn(KeyboardEvent) {
 }
 
 /// The card's body with its state badges, the prose check and Revert / Apply.
-fn card_bar(c: Card) -> impl IntoView {
+pub(crate) fn card_bar(c: Card) -> impl IntoView {
     view! {
         {move || c.bad().map(|e| view! { <p class="hint bad">"Not well-formed XML yet: " {e}</p> })}
         {bar(c.d, c.busy(), move || c.apply())}
@@ -157,7 +157,7 @@ fn card_bar(c: Card) -> impl IntoView {
 // ---- fields --------------------------------------------------------------------------
 
 /// A text box for an attribute (`k`) or, with `k` empty, the element's text.
-fn text_in(c: Card, loc: Loc, k: &'static str, label: &'static str, ph: &'static str, hint: &'static str) -> impl IntoView {
+pub(crate) fn text_in(c: Card, loc: Loc, k: &'static str, label: &'static str, ph: &'static str, hint: &'static str) -> impl IntoView {
     view! {
         <label class="field">
             <span class="field-label">{label}</span>
@@ -173,7 +173,7 @@ fn text_in(c: Card, loc: Loc, k: &'static str, label: &'static str, ph: &'static
 }
 
 /// A choice for an attribute; `empty` names the blank choice (None: no blank).
-fn pick_in(c: Card, loc: Loc, k: &'static str, opts: &'static [&'static str], empty: Option<&'static str>, label: &'static str, hint: &'static str) -> impl IntoView {
+pub(crate) fn pick_in(c: Card, loc: Loc, k: &'static str, opts: &'static [&'static str], empty: Option<&'static str>, label: &'static str, hint: &'static str) -> impl IntoView {
     let cur = move || c.m().at(&loc.s[..loc.n]).map(|e| if k.is_empty() { e.text.clone() } else { e.get(k).to_string() }).unwrap_or_default();
     view! {
         <label class="field">
@@ -195,7 +195,7 @@ fn pick_in(c: Card, loc: Loc, k: &'static str, opts: &'static [&'static str], em
     }
 }
 
-fn flag_in(c: Card, loc: Loc, k: &'static str, default: bool, label: &'static str) -> impl IntoView {
+pub(crate) fn flag_in(c: Card, loc: Loc, k: &'static str, default: bool, label: &'static str) -> impl IntoView {
     view! {
         <label class="flag">
             <input type="checkbox" prop:checked=move || c.m().at(&loc.s[..loc.n]).is_some_and(|e| e.flag(k, default))
@@ -210,7 +210,7 @@ fn flag_in(c: Card, loc: Loc, k: &'static str, default: bool, label: &'static st
 
 /// The text of an optional child `tag` of the element at `loc` (empty removes it,
 /// unless `keep`).
-fn kid_text(c: Card, loc: Loc, tag: &'static str, keep: bool, label: &'static str, ph: &'static str, hint: &'static str) -> impl IntoView {
+pub(crate) fn kid_text(c: Card, loc: Loc, tag: &'static str, keep: bool, label: &'static str, ph: &'static str, hint: &'static str) -> impl IntoView {
     view! {
         <label class="field">
             <span class="field-label">{label}</span>
@@ -225,7 +225,7 @@ fn kid_text(c: Card, loc: Loc, tag: &'static str, keep: bool, label: &'static st
 }
 
 /// What a stat block's refs can point at: (tag, id, name).
-type RefCtx = Memo<Vec<(String, String, String)>>;
+pub(crate) type RefCtx = Memo<Vec<(String, String, String)>>;
 
 fn ref_ctx(mon: Memo<Option<El>>) -> RefCtx {
     Memo::new(move |_| {
@@ -249,7 +249,7 @@ fn ref_ctx(mon: Memo<Option<El>>) -> RefCtx {
 /// Prose: a text box of XML with an Insert menu. `tag` names an optional child of the
 /// element at `loc` (empty removes it, unless `keep`); None edits the element's own text.
 #[component]
-fn Prose(
+pub(crate) fn Prose(
     c: Card,
     loc: Loc,
     #[prop(optional)] tag: Option<&'static str>,
@@ -258,7 +258,13 @@ fn Prose(
     #[prop(optional)] ph: &'static str,
     #[prop(optional)] keep: bool,
     refs: RefCtx,
+    /// The Insert menu's tags (default: a stat block's).
+    #[prop(optional)] tags: Option<&'static [sb::InlineSpec]>,
+    /// The file's entry refs, for the live preview and the entry ref tools (magic items).
+    #[prop(optional)] preview: Option<Memo<shared::inline::RefCtx>>,
 ) -> impl IntoView {
+    let specs: &'static [sb::InlineSpec] = tags.unwrap_or(sb::INLINE);
+    let spec_of = move |k: &str| specs.iter().find(|s| s.tag == k);
     let get = move || {
         c.m().at(&loc.s[..loc.n]).map(|e| match tag {
             Some(t) => e.opt_text(t),
@@ -277,10 +283,10 @@ fn Prose(
     let body = RwSignal::new(String::new());
     let insert = move || {
         let k = kind.get_untracked();
-        let Some(spec) = sb::inline_spec(&k) else { return };
+        let Some(spec) = spec_of(&k) else { return };
         let v = vals.get_untracked();
         let attrs: Vec<(String, String)> = spec.attrs.iter().map(|(a, _, _)| (a.to_string(), v.iter().find(|(x, _)| x == a).map(|(_, y)| y.clone()).unwrap_or_default())).collect();
-        let xml = sb::inline_xml(&k, &attrs, &body.get_untracked());
+        let xml = sb::inline_xml_with(spec, &attrs, &body.get_untracked());
         let len = xml.len();
         let text = get();
         let (a, b) = selection(ta, &text);
@@ -289,12 +295,20 @@ fn Prose(
         kind.set(String::new());
         request_animation_frame(move || select_range(ta, &new, a, a + len));
     };
+    let tools = preview.map(|ctx| RefTools::new(Signal::derive(get), Callback::new(put), ta, ctx));
     let open_kind = move |k: String| {
+        if k == "__ref" {
+            kind.set(String::new());
+            if let Some(t) = tools {
+                t.open_insert();
+            }
+            return;
+        }
         let text = get();
         let (a, b) = selection(ta, &text);
         body.set(text.get(a..b).unwrap_or_default().to_string());
         vals.set(Vec::new());
-        let instant = sb::inline_spec(&k).is_some_and(|s| s.attrs.is_empty() && s.text.is_none());
+        let instant = spec_of(&k).is_some_and(|s| s.attrs.is_empty() && s.text.is_none());
         kind.set(k);
         if instant {
             insert();
@@ -303,7 +317,7 @@ fn Prose(
     let missing = move || {
         let k = kind.get();
         let v = vals.get();
-        sb::inline_spec(&k).is_some_and(|s| {
+        spec_of(&k).is_some_and(|s| {
             s.attrs.iter().any(|(a, _, req)| *req && v.iter().find(|(x, _)| x == a).is_none_or(|(_, y)| y.trim().is_empty()))
                 || (s.text.is_some() && body.get().trim().is_empty())
         })
@@ -346,13 +360,14 @@ fn Prose(
                 <select class="insert-pick" title="Insert an inline tag at the cursor (around the selected text, for tags with text)"
                     prop:value=move || kind.get() on:change=move |ev| open_kind(event_target_value(&ev))>
                     <option value="">"Insert…"</option>
-                    {sb::INLINE.iter().map(|s| view! { <option value=s.tag>{s.label}</option> }).collect_view()}
+                    {preview.is_some().then(|| view! { <option value="__ref">"Entry ref (monster, spell, item, data)…"</option> })}
+                    {specs.iter().map(|s| view! { <option value=s.tag>{s.label}</option> }).collect_view()}
                 </select>
             </span>
             <textarea node_ref=ta class="p-text" spellcheck="true" rows=2 placeholder=ph prop:value=get on:input=move |ev| put(event_target_value(&ev))></textarea>
             {move || {
                 let k = kind.get();
-                sb::inline_spec(&k).filter(|s| !(s.attrs.is_empty() && s.text.is_none())).map(|s| {
+                spec_of(&k).filter(|s| !(s.attrs.is_empty() && s.text.is_none())).map(|s| {
                     view! {
                         <div class="insert-panel">
                             <span class="insert-title">{format!("<{}>", s.tag)}</span>
@@ -378,6 +393,7 @@ fn Prose(
                     }.into_any()
                 })
             }}
+            {tools.map(|t| view! { <RefToolsView tools=t tab=c.tab/> })}
             {(!hint.is_empty()).then(|| view! { <span class="hint">{hint}</span> })}
         </div>
     }
@@ -386,7 +402,7 @@ fn Prose(
 /// Rows of `tag` children in the `container` child of the element at `loc` (or, with
 /// `container` empty, of the element itself): each row's fields, reorder, delete, add.
 #[component]
-fn Rows(
+pub(crate) fn Rows(
     c: Card,
     loc: Loc,
     #[prop(optional)] container: &'static str,
@@ -448,18 +464,18 @@ fn Rows(
 // ---- the stat block's own cards -------------------------------------------------------
 
 /// The monster El cut down to the children with these tags.
-fn scoped(m: &El, tags: &[&str]) -> El {
+pub(crate) fn scoped(m: &El, tags: &[&str]) -> El {
     let mut e = m.clone();
     e.kids.retain(|k| tags.contains(&k.tag.as_str()));
     e
 }
 
-fn scope(tags: &[&str]) -> Option<Vec<String>> {
+pub(crate) fn scope(tags: &[&str]) -> Option<Vec<String>> {
     Some(tags.iter().map(|t| t.to_string()).collect())
 }
 
 #[component]
-fn Section(#[prop(into)] title: String, #[prop(optional, into)] hint: String, focus: Signal<bool>, children: Children) -> impl IntoView {
+pub(crate) fn Section(#[prop(into)] title: String, #[prop(optional, into)] hint: String, focus: Signal<bool>, children: Children) -> impl IntoView {
     let el = NodeRef::<html::Details>::new();
     Effect::new(move |_| {
         if focus.get() {

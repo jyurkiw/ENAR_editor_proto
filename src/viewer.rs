@@ -20,6 +20,7 @@ use shared::table::{self as tables, TableAt};
 use crate::block_form::BlockForm;
 use crate::box_form::BoxForm;
 use crate::monster_form::MonsterForm;
+use crate::item_form::ItemPage;
 use crate::list_form::ListForm;
 use shared::boxes::{self as boxes, BoxAt};
 use crate::table_form::TableForm;
@@ -47,10 +48,15 @@ enum FormKind {
     Box(BoxAt),
     /// Any element of a monster file, by its tree path and tag (the raw editor).
     Monster(Vec<usize>, String),
+    /// Anything in a magic item file: its one page.
+    Item,
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     let n = d.nodes.get(idx)?;
+    if d.kind == shared::DocKind::MagicItem {
+        return Some(FormKind::Item);
+    }
     if d.kind == shared::DocKind::Monsters {
         let key = d.key_of(idx);
         // Anything in a stat block: its page (one form for all of it), unless it's a template.
@@ -215,7 +221,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | None => {}
             Some(FormKind::Monster(path, tag)) => {
                 if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
                     let p2 = path.clone();
@@ -292,6 +298,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::List(at)), Mode::Form) => view! { <ListForm tab at/> }.into_any(),
                     (Some(FormKind::Box(at)), Mode::Form) => view! { <BoxForm tab at/> }.into_any(),
                     (Some(FormKind::Monster(path, tag)), Mode::Form) => view! { <MonsterForm tab path tag/> }.into_any(),
+                    (Some(FormKind::Item), Mode::Form) => view! { <ItemPage tab/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

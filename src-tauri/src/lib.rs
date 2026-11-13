@@ -10,7 +10,7 @@ mod validate;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use shared::{AppError, ApplyResult, Change, FsEntry, NewMonsterFile, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
+use shared::{AppError, ApplyResult, Change, FsEntry, NewMagicItem, NewMonsterFile, NewSupplement, OpenProject, OpenedDoc, ProjectInfo};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -93,6 +93,12 @@ fn create_monster_file(req: NewMonsterFile, state: State<'_, AppState>) -> Resul
 }
 
 #[tauri::command(rename_all = "snake_case")]
+fn create_magic_item_file(req: NewMagicItem, state: State<'_, AppState>) -> Result<String, AppError> {
+    let p = state.project()?;
+    fsops::create_magic_item_file(&req, &p.root, &p.schemas_dir)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 async fn open_file(path: String, app: AppHandle) -> Result<OpenedDoc, AppError> {
     blocking(move || {
         let state = app.state::<AppState>();
@@ -171,6 +177,7 @@ pub fn run() {
             list_dir,
             create_supplement,
             create_monster_file,
+            create_magic_item_file,
             open_file,
             apply_change,
             ref_index,

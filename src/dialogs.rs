@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use shared::chapter::{self, ChapterEdit, KINDS};
-use shared::{main_file_for_type, Change, NewMonsterFile, NewSupplement, SUPPLEMENT_TYPES};
+use shared::{main_file_for_type, Change, NewMagicItem, NewMonsterFile, NewSupplement, SUPPLEMENT_TYPES};
 
 use crate::api;
 use crate::apply::apply;
@@ -58,6 +58,7 @@ pub fn Dialogs() -> impl IntoView {
         }
         Some(Dialog::NewSupplement { parent }) => view! { <NewSupplementDialog parent/> }.into_any(),
         Some(Dialog::NewMonsterFile { parent }) => view! { <NewMonsterFileDialog parent/> }.into_any(),
+        Some(Dialog::NewMagicItem { parent }) => view! { <NewMagicItemDialog parent/> }.into_any(),
         Some(Dialog::NewChapter { tab }) => view! { <NewChapterDialog tab_id=tab/> }.into_any(),
     }
 }
@@ -443,6 +444,120 @@ fn NewMonsterFileDialog(parent: String) -> impl IntoView {
                         }/>
                     </label>
                 </div>
+                <p class="preview">"Creates " <code>{preview}</code></p>
+                {move || error.get().map(|e| view! { <p class="problem">{e}</p> })}
+                <div class="buttons">
+                    <button type="button" on:click=move |_| app.dialog.set(None)>"Cancel"</button>
+                    <button type="submit" class="primary">"Create"</button>
+                </div>
+            </form>
+        </div>
+    }
+}
+
+#[component]
+fn NewMagicItemDialog(parent: String) -> impl IntoView {
+    let app = ctx();
+    let file = RwSignal::new(String::new());
+    let name = RwSignal::new(String::new());
+    let id = RwSignal::new(String::new());
+    let item_type = RwSignal::new("wondrous-item".to_string());
+    let rarity = RwSignal::new("uncommon".to_string());
+    // The name and id follow the file name until they're edited.
+    let edited = RwSignal::new((false, false));
+    let error = RwSignal::new(None::<String>);
+    let parent = StoredValue::new(parent);
+    let rel_parent = move || {
+        let p = parent.get_value();
+        match app.project.get() {
+            Some(pr) if p.len() >= pr.root.len() && p[..pr.root.len()].eq_ignore_ascii_case(&pr.root) => {
+                format!("{}{}", pr.name, &p[pr.root.len()..])
+            }
+            _ => p,
+        }
+    };
+    let preview = move || {
+        let f = file.get();
+        let f = f.trim().trim_end_matches(".xml");
+        format!("{}\\{}.xml", rel_parent(), if f.is_empty() { "…" } else { f })
+    };
+    let create = move || {
+        let req = NewMagicItem {
+            parent: parent.get_value(),
+            file: file.get_untracked(),
+            id: id.get_untracked(),
+            name: name.get_untracked(),
+            item_type: item_type.get_untracked(),
+            rarity: rarity.get_untracked(),
+        };
+        spawn_local(async move {
+            match api::create_magic_item_file(&req).await {
+                Ok(path) => {
+                    app.dialog.set(None);
+                    app.open_dirs.update(|d| {
+                        d.insert(req.parent.clone());
+                    });
+                    app.refresh_files();
+                    app.open_file(path);
+                }
+                Err(e) => error.set(Some(e.message)),
+            }
+        })
+    };
+    view! {
+        <div class="modal-backdrop">
+            <form class="modal" on:submit=move |ev| {
+                ev.prevent_default();
+                create();
+            }>
+                <h2>"New magic item"</h2>
+                <label class="field">
+                    <span class="field-label">"File name"</span>
+                    <input type="text" autofocus placeholder="flame-tongue" prop:value=move || file.get()
+                        on:input=move |ev| {
+                            let v = event_target_value(&ev);
+                            let (n, i) = edited.get_untracked();
+                            let stem = v.trim().trim_end_matches(".xml").to_string();
+                            if !n {
+                                name.set(title_from_folder(&stem));
+                            }
+                            if !i {
+                                id.set(slug_of(&stem));
+                            }
+                            file.set(v);
+                        }/>
+                </label>
+                <div class="field-row">
+                    <label class="field">
+                        <span class="field-label">"Item name"</span>
+                        <input type="text" placeholder="Flame Tongue" prop:value=move || name.get() on:input=move |ev| {
+                            edited.update(|e| e.0 = true);
+                            name.set(event_target_value(&ev));
+                        }/>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">"Id"</span>
+                        <input type="text" placeholder="flame-tongue" prop:value=move || id.get() on:input=move |ev| {
+                            edited.update(|e| e.1 = true);
+                            id.set(event_target_value(&ev));
+                        }/>
+                    </label>
+                </div>
+                <div class="field-row">
+                    <label class="field">
+                        <span class="field-label">"Type"</span>
+                        <select prop:value=move || item_type.get() on:change=move |ev| item_type.set(event_target_value(&ev))>
+                            {shared::item::TYPES.iter().map(|(v, l)| view! { <option value=*v>{*l}</option> }).collect_view()}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span class="field-label">"Rarity"</span>
+                        <select prop:value=move || rarity.get() on:change=move |ev| rarity.set(event_target_value(&ev))>
+                            {shared::item::RARITIES.iter().map(|(v, l)| view! { <option value=*v>{*l}</option> }).collect_view()}
+                        </select>
+                    </label>
+                </div>
+                <p class="hint">"Starts as a draft with no attunement and one empty paragraph."</p>
                 <p class="preview">"Creates " <code>{preview}</code></p>
                 {move || error.get().map(|e| view! { <p class="problem">{e}</p> })}
                 <div class="buttons">

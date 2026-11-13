@@ -14,6 +14,7 @@ mod dialogs;
 mod reference_form;
 mod files;
 mod inline_refs;
+mod item_form;
 mod list_form;
 mod family_form;
 mod statblock_form;
@@ -82,6 +83,11 @@ fn Toolbar() -> impl IntoView {
             app.dialog.set(Some(Dialog::NewMonsterFile { parent: p.root }));
         }
     };
+    let new_item = move |_| {
+        if let Some(p) = app.project.get_untracked() {
+            app.dialog.set(Some(Dialog::NewMagicItem { parent: p.root }));
+        }
+    };
     view! {
         <header class="toolbar">
             <span class="brand">"Enigma Narrative"</span>
@@ -92,6 +98,7 @@ fn Toolbar() -> impl IntoView {
             <button on:click=move |_| app.pick_and_open_project()>"Open project…"</button>
             <button disabled=move || app.project.get().is_none() on:click=new_supplement>"New supplement…"</button>
             <button disabled=move || app.project.get().is_none() on:click=new_monster_file>"New monster file…"</button>
+            <button disabled=move || app.project.get().is_none() on:click=new_item>"New magic item…"</button>
         </header>
     }
 }

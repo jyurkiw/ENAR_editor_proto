@@ -286,6 +286,7 @@ pub enum Dialog {
     /// Create a supplement folder inside `parent`.
     NewSupplement { parent: String },
     NewMonsterFile { parent: String },
+    NewMagicItem { parent: String },
     /// Add a chapter to the file in this tab.
     NewChapter { tab: u32 },
 }
@@ -397,7 +398,8 @@ impl AppCtx {
                     let id = dup.unwrap_or_else(|| {
                         let id = self.next_id.get_value();
                         self.next_id.set_value(id + 1);
-                        let is_supplement = doc.kind == shared::DocKind::Supplement;
+                        // Files with a <reference>: read what its entries print, for the preview.
+                        let is_supplement = matches!(doc.kind, shared::DocKind::Supplement | shared::DocKind::MagicItem);
                         let tab = DocTab::new(id, doc);
                         if is_supplement {
                             tab.refresh_refs();

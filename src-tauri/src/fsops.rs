@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use shared::{main_file_for_type, is_supplement_type, AppError, FsEntry, NewMonsterFile, NewSupplement, MONSTER_SCHEMA, SUPPLEMENT_SCHEMA};
+use shared::{main_file_for_type, is_supplement_type, AppError, FsEntry, NewMagicItem, NewMonsterFile, NewSupplement, MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SUPPLEMENT_SCHEMA};
 
 use crate::project::path_str;
 
@@ -143,9 +143,69 @@ pub fn create_monster_file(req: &NewMonsterFile, project_root: &str, schemas_dir
     Ok(path_str(&file))
 }
 
+/// Creates a new magic item file in `req.parent`: a draft with one empty paragraph.
+pub fn create_magic_item_file(req: &NewMagicItem, project_root: &str, schemas_dir: &str) -> Result<String, AppError> {
+    let stem = req.file.trim().trim_end_matches(".xml");
+    if let Some(why) = bad_folder_name(stem) {
+        return Err(AppError::new(format!("The file name {why}")));
+    }
+    for (what, v) in [("item name", &req.name), ("item id", &req.id)] {
+        if v.trim().is_empty() {
+            return Err(AppError::new(format!("The {what} is empty")));
+        }
+    }
+    if !shared::item::TYPES.iter().any(|(t, _)| *t == req.item_type) {
+        return Err(AppError::new(format!("\"{}\" isn't an item type", req.item_type)));
+    }
+    if !shared::item::RARITIES.iter().any(|(r, _)| *r == req.rarity) {
+        return Err(AppError::new(format!("\"{}\" isn't a rarity", req.rarity)));
+    }
+    let root = dunce::canonicalize(project_root).map_err(|e| AppError::new(format!("Can't open the project: {e}")))?;
+    let parent = dunce::canonicalize(&req.parent).map_err(|e| AppError::new(format!("Can't open {}: {e}", req.parent)))?;
+    if !parent.starts_with(&root) {
+        return Err(AppError::new(format!("{} isn't inside the project", parent.display())));
+    }
+    let file = parent.join(format!("{stem}.xml"));
+    if file.exists() {
+        return Err(AppError::new(format!("{} already exists", file.display())));
+    }
+    let schema = Path::new(schemas_dir).join(MAGIC_ITEM_SCHEMA);
+    let loc = pathdiff::diff_paths(&schema, &parent)
+        .map(|p| path_str(&p).replace('\\', "/"))
+        .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
+    let text = shared::item::skeleton(&loc, req.id.trim(), req.name.trim(), &req.item_type, &req.rarity);
+    std::fs::write(&file, text).map_err(|e| AppError::new(format!("Can't write {}: {e}", file.display())))?;
+    Ok(path_str(&file))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creates_a_magic_item_file() {
+        let t = tempfile::tempdir().unwrap();
+        let schemas = t.path().join("schemas");
+        std::fs::create_dir(&schemas).unwrap();
+        let root = t.path().join("p");
+        std::fs::create_dir_all(root.join("items")).unwrap();
+        let mut req = NewMagicItem {
+            parent: path_str(&root.join("items")),
+            file: "flame-tongue".into(),
+            id: "flame-tongue".into(),
+            name: "Flame Tongue".into(),
+            item_type: "weapon".into(),
+            rarity: "rare".into(),
+        };
+        let f = create_magic_item_file(&req, &path_str(&root), &path_str(&schemas)).unwrap();
+        let text = std::fs::read_to_string(&f).unwrap();
+        assert!(text.contains(r#"xsi:noNamespaceSchemaLocation="../../schemas/magic-item-template-schema.xsd" id="flame-tongue" status="draft""#), "{text}");
+        assert!(text.contains("<type>weapon</type>") && text.contains("<rarity>rare</rarity>"), "{text}");
+        assert!(create_magic_item_file(&req, &path_str(&root), &path_str(&schemas)).is_err(), "exists");
+        req.file = "other".into();
+        req.rarity = "mythic".into();
+        assert!(create_magic_item_file(&req, &path_str(&root), &path_str(&schemas)).is_err(), "bad rarity");
+    }
 
     #[test]
     fn creates_a_monster_file() {

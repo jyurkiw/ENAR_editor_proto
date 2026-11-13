@@ -10,7 +10,7 @@ use std::process::Command;
 use serde::Deserialize;
 use shared::{
     AppError, ApplyResult, DocKind, OpenedDoc, Problem, ProjectInfo, Validation, LEGACY_SUPPLEMENT_SCHEMA,
-    MONSTER_SCHEMA, SUPPLEMENT_SCHEMA,
+    MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SUPPLEMENT_SCHEMA,
 };
 
 use crate::project::path_str;
@@ -206,7 +206,7 @@ fn check_text(
     let parsed = xmldoc::parse(source).map_err(|e| AppError::new(format!("Can't open {name}. {}", e.message)))?;
     let mut warnings = Vec::new();
 
-    // 1. The root must be <supplement> or <monsters>.
+    // 1. The root must be <supplement>, <monsters> or <magicItem>.
     if parsed.root_tag == "adventure" {
         return Err(AppError::with_details(
             format!("{name} is an old-style <adventure> file, not a <supplement>."),
@@ -216,10 +216,10 @@ fn check_text(
     let Some(kind) = DocKind::of_root(&parsed.root_tag) else {
         let schema = parsed.schema_location.as_deref().map(file_name).unwrap_or("no schema");
         return Err(AppError::with_details(
-            format!("{name} isn't a supplement or monster file."),
+            format!("{name} isn't a supplement, monster or magic item file."),
             vec![
                 format!("Its root element is <{}> and it names {schema}.", parsed.root_tag),
-                format!("Only files using {SUPPLEMENT_SCHEMA} or {MONSTER_SCHEMA} can be opened."),
+                format!("Only files using {SUPPLEMENT_SCHEMA}, {MONSTER_SCHEMA} or {MAGIC_ITEM_SCHEMA} can be opened."),
             ],
         ));
     };
@@ -437,7 +437,7 @@ mod real {
         assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
         let err = open_file(&format!("{REPO}/adventures/compiler-test/thistlewoods-hearthward.xml"), &p, &v).unwrap_err();
         println!("{}\n  {}", err.message, err.details.join("\n  "));
-        assert!(err.message.contains("isn't a supplement or monster file"));
+        assert!(err.message.contains("isn't a supplement, monster or magic item file"));
         // Every shared monster file opens and validates.
         let dir = format!("{REPO}/shared/internal/monsters");
         let mut n = 0;
@@ -589,6 +589,150 @@ mod real {
         println!("{checked} stat blocks checked");
         assert!(checked > 300);
         assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// Every magic item in the data: each card applied unchanged writes nothing.
+    #[test]
+    #[ignore]
+    fn item_cards_unchanged_are_no_ops() {
+        use shared::statblock::{self as sb, El, StatEdit};
+        fn xmls(dir: &Path, out: &mut Vec<PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if p.is_dir() && !name.starts_with('.') && name != "node_modules" && name != "target" {
+                    xmls(&p, out);
+                } else if name.ends_with(".xml") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        xmls(Path::new(REPO), &mut files);
+        let (mut checked, mut failures) = (0, Vec::new());
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            if !src.contains("<magicItem") {
+                continue;
+            }
+            let Some(m) = sb::read(&src, sb::ROOT) else { continue };
+            if m.tag != "magicItem" {
+                continue;
+            }
+            checked += 1;
+            let header: Vec<String> = ["name", "type", "subtypes", "rarities", "attunement"].iter().map(|t| t.to_string()).collect();
+            let mut h = m.clone();
+            h.kids.retain(|k| header.contains(&k.tag));
+            let mut cards: Vec<(El, Option<Vec<String>>)> = vec![(h, Some(header))];
+            if let Some(d) = m.kid("description") {
+                for b in &d.kids {
+                    cards.push((b.clone(), None));
+                    cards.extend(b.kids.iter().map(|k| (k.clone(), None)));
+                }
+            }
+            for (el, scope) in cards {
+                let tag = el.tag.clone();
+                match sb::plan(&src, &StatEdit::Update { child: sb::ROOT, el, scope }) {
+                    Ok(out) if out == src => {}
+                    Ok(out) => {
+                        let at = src.bytes().zip(out.bytes()).position(|(a, b)| a != b).unwrap_or(0);
+                        failures.push(format!("{}: <{tag}> changed near: {:?}", f.display(), &src[at.saturating_sub(40)..(at + 40).min(src.len())]));
+                    }
+                    Err(e) => failures.push(format!("{}: <{tag}>: {e}", f.display())),
+                }
+            }
+        }
+        println!("{checked} magic items checked");
+        assert!(checked > 250);
+        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// A new magic item, built up through its cards and reference edits, against the
+    /// magic item schema.
+    #[test]
+    #[ignore]
+    fn magic_item_round_trip() {
+        use shared::reference::{RefEdit, RefEntry};
+        use shared::statblock::{self as sb, El, StatEdit, ROOT};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures/compiler-test")).unwrap();
+        let req = shared::NewMagicItem {
+            parent: path_str(t.path()),
+            file: "lantern".into(),
+            id: "lantern".into(),
+            name: "Lantern of Lisra".into(),
+            item_type: "wondrous-item".into(),
+            rarity: "rare".into(),
+        };
+        let path = crate::fsops::create_magic_item_file(&req, REPO, &p.schemas_dir).unwrap();
+        let doc = open_file(&path, &p, &v).unwrap();
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        assert_eq!(doc.kind, DocKind::MagicItem);
+        let run = |expected: &str, change: shared::Change| match apply_edit(&path, expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        let stat = |e: StatEdit| shared::Change::Stat { edit: e };
+        let m = |s: &str| sb::read(s, ROOT).unwrap();
+
+        // A creator entry, then the header: the name pulls the creator's name.
+        let mut lisra = RefEntry::new("monster");
+        lisra.attrs = vec![("id".into(), "lisra".into()), ("name".into(), "Lisra".into()), ("shortName".into(), "Lisra".into()), ("cr".into(), "3".into())];
+        let doc = run(&doc.source, shared::Change::Reference { edit: RefEdit::Add { entry: lisra } });
+        let header: Vec<String> = ["name", "type", "subtypes", "rarities", "attunement"].iter().map(|s| s.to_string()).collect();
+        let mut h = m(&doc.source);
+        h.kids.retain(|k| header.contains(&k.tag));
+        h.set("creator", "lisra");
+        h.set("status", "mechanics-locked");
+        h.kid_mut("name").unwrap().text = "<monsterRef ref=\"lisra\" value=\"shortName\"/>'s Lantern".into();
+        h.kid_mut("subtypes").unwrap().kids.push(El::new("subtype").with_text("Lantern"));
+        h.kid_mut("rarities").unwrap().kids.push(El::new("rarity").with("note", "awakened").with_text("very-rare"));
+        let att = h.kid_mut("attunement").unwrap();
+        att.set("required", "true");
+        att.insert_kid(El::new("attunementRequirements").with_kid(El::new("attunementRequirement").with_text("Wizard")));
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: h, scope: Some(header) }));
+        assert!(doc.source.contains("<attunementRequirement>Wizard</attunementRequirement>"), "{}", doc.source);
+
+        // The first paragraph, an ability with a table, a list, and a sidebar.
+        let d = m(&doc.source).kid("description").unwrap().clone();
+        let mut para = d.kids[0].clone();
+        para.text = "It sheds light in a <area name=\"sphere\" radius=\"30\"/>; creatures take <damage num=\"2\" sides=\"6\" type=\"radiant\"/>.".into();
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: para, scope: None }));
+        let dp = d.path.clone().unwrap();
+        let ability = El::new("ability").with("name", "Flare").with_kid(El::new("p").with_text("Roll <roll num=\"1\" sides=\"4\"/>."))
+            .with_kid(El::new("table").with_kid(El::new("header").with_kid(El::new("th").with_text("d4")).with_kid(El::new("th").with_text("Effect")))
+                .with_kid(El::new("tableBody").with_kid(El::new("tr").with_kid(El::new("td").with_text("1")).with_kid(El::new("td").with_text("Nothing")))));
+        let doc = run(&doc.source, stat(StatEdit::Insert { child: ROOT, parent: dp.clone(), parent_tag: "description".into(), el: ability, after: Some(0) }));
+        let list = El::new("list").with("bullet", "number").with_kid(El::new("li").with_text("One")).with_kid(El::new("li").with_text("Two"));
+        let doc = run(&doc.source, stat(StatEdit::Insert { child: ROOT, parent: dp.clone(), parent_tag: "description".into(), el: list, after: Some(1) }));
+        let side = El::new("sidebar").with_kid(El::new("title").with_text("Lore")).with_kid(El::new("p").with_text("Old."));
+        let doc = run(&doc.source, stat(StatEdit::Insert { child: ROOT, parent: dp.clone(), parent_tag: "description".into(), el: side, after: Some(2) }));
+        // A row added to the ability's table; the list moved to the front; the sidebar gone.
+        let mut table = m(&doc.source).at(&[("description", 0), ("ability", 0), ("table", 0)]).unwrap().clone();
+        table.kid_mut("tableBody").unwrap().kids.push(El::new("tr").with_kid(El::new("td").with_text("2")).with_kid(El::new("td").with_text("A <condition>blinded</condition> foe")));
+        let doc = run(&doc.source, stat(StatEdit::Update { child: ROOT, el: table, scope: None }));
+        let mut lp = dp.clone();
+        lp.push(2);
+        let doc = run(&doc.source, stat(StatEdit::Move { child: ROOT, path: lp, tag: "list".into(), before: Some(0) }));
+        assert_eq!(m(&doc.source).kid("description").unwrap().kids[0].tag, "list");
+        let mut sp = dp.clone();
+        sp.push(3);
+        let doc = run(&doc.source, stat(StatEdit::Delete { child: ROOT, path: sp, tag: "sidebar".into() }));
+
+        // Renaming the creator's entry renames the creator and the name's ref.
+        let mut renamed = RefEntry::new("monster");
+        renamed.attrs = vec![("id".into(), "lisra-the-bright".into()), ("name".into(), "Lisra".into()), ("shortName".into(), "Lisra".into()), ("cr".into(), "3".into())];
+        let doc = run(&doc.source, shared::Change::Reference { edit: RefEdit::Update { tag: "monster".into(), id: "lisra".into(), entry: renamed } });
+        assert!(doc.source.contains("creator=\"lisra-the-bright\"") && doc.source.contains("<monsterRef ref=\"lisra-the-bright\""), "{}", doc.source);
+
+        // A bad rarity is refused, and nothing is written.
+        let mut bad = m(&doc.source).at(&[("rarities", 0)]).unwrap().clone();
+        bad.kids[0].text = "mythic".into();
+        let change = stat(StatEdit::Update { child: ROOT, el: bad, scope: None });
+        let r = apply_edit(&path, &doc.source, &p, &v, |s| change.plan(s)).unwrap();
+        assert!(matches!(r, ApplyResult::Invalid { .. }), "expected a refusal");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), doc.source);
+        println!("{}", doc.source);
     }
 
     /// A real stat block edited through its cards, against the monster schema.

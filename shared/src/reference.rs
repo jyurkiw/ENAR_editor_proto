@@ -208,6 +208,11 @@ const POINTERS: &[(&str, &str, Ctx, &str)] = &[
     ("image", "id", Ctx::SectionImage, "image"),
     ("nounRef", "ref", Ctx::Any, "noun"),
     ("dataRef", "ref", Ctx::Any, "data"),
+    // A magic item's creator: any kind of entry (their ids are unique across kinds there).
+    ("magicItem", "creator", Ctx::Any, "monster"),
+    ("magicItem", "creator", Ctx::Any, "spell"),
+    ("magicItem", "creator", Ctx::Any, "item"),
+    ("magicItem", "creator", Ctx::Any, "data"),
 ];
 
 /// Every pointer at a reference entry: (kind, id, start-tag offset, attribute).
@@ -365,6 +370,20 @@ fn content_splices(source: &str, nodes: &[StructNode], ni: usize, new: &RefEntry
     Ok(out)
 }
 
+/// Where a new `<reference>` goes (schema order): right before a supplement's
+/// `<chapterOrder>`, or last in a magic item (after its `<description>`).
+fn place_block(source: &str, nodes: &[StructNode], block: &str) -> Result<Splice, String> {
+    let root = &nodes[0];
+    if root.tag == "magicItem" {
+        let last = root.children.last().map(|c| &nodes[*c]).ok_or("the item is empty")?;
+        return edit::insert_child(source, Anchor::After(last), block).ok_or_else(|| "can't place <reference>".to_string());
+    }
+    let order = root.children.iter().map(|c| &nodes[*c]).find(|n| n.tag == "chapterOrder").ok_or("the supplement has no <chapterOrder>")?;
+    let mut s = edit::insert_child(source, Anchor::Before(order), block).ok_or("can't place <reference>")?;
+    s.text.push('\n');
+    Ok(s)
+}
+
 pub fn plan(source: &str, change: &RefEdit) -> Result<String, String> {
     let nodes = parse(source).map_err(|e| e.message)?.nodes;
     let unit = edit::indent_unit(source);
@@ -397,13 +416,8 @@ pub fn plan(source: &str, change: &RefEdit) -> Result<String, String> {
                     edit::apply(source, &[s])
                 }
                 None => {
-                    // <reference> goes right before <chapterOrder> (schema order).
                     let block = format!("<reference>\n{}\n</reference>", xml.lines().map(|l| format!("{unit}{l}")).collect::<Vec<_>>().join("\n"));
-                    let root = &nodes[0];
-                    let order = root.children.iter().map(|c| &nodes[*c]).find(|n| n.tag == "chapterOrder").ok_or("the supplement has no <chapterOrder>")?;
-                    let mut s = edit::insert_child(source, Anchor::Before(order), &block).ok_or("can't place <reference>")?;
-                    s.text.push('\n');
-                    edit::apply(source, &[s])
+                    edit::apply(source, &[place_block(source, &nodes, &block)?])
                 }
             }
         }
@@ -411,11 +425,7 @@ pub fn plan(source: &str, change: &RefEdit) -> Result<String, String> {
             if reference_node(&nodes).is_some() {
                 return Ok(source.to_string());
             }
-            let root = &nodes[0];
-            let order = root.children.iter().map(|c| &nodes[*c]).find(|n| n.tag == "chapterOrder").ok_or("the supplement has no <chapterOrder>")?;
-            let mut s = edit::insert_child(source, Anchor::Before(order), "<reference/>").ok_or("can't place <reference>")?;
-            s.text.push('\n');
-            edit::apply(source, &[s])
+            edit::apply(source, &[place_block(source, &nodes, "<reference/>")?])
         }
         RefEdit::Delete { tag, id } => {
             let ni = find(source, &nodes, tag, id).ok_or_else(|| format!("there's no <{tag} id=\"{id}\">"))?;

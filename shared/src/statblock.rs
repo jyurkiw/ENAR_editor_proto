@@ -58,6 +58,12 @@ pub const CRS: &[&str] = &[
     "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30",
 ];
 
+/// The base `child` that means the file's root element itself (a magic item), not a
+/// `<monster>` among the root's children.
+/// The same number on both sides: the frontend (wasm32) and the backend (64-bit) have
+/// different `usize::MAX`es, so it's the 32-bit one.
+pub const ROOT: usize = u32::MAX as usize;
+
 /// What an action list can hold.
 pub const ITEMS: &[&str] =
     &["action", "attack", "save", "spellcasting", "spell", "actionRef", "attackRef", "saveRef", "spellRef", "speedRef"];
@@ -66,12 +72,14 @@ pub const ITEMS: &[&str] =
 const PROSE: &[&str] = &[
     "multiattack", "hit", "miss", "chase", "override", "trigger", "response", "targets", "failure", "success",
     "failureOrSuccess", "cutline", "p", "td", "effect",
+    // magic items
+    "li", "th", "title", "subtitle", "data",
 ];
 
 /// Is `<tag>` (in `<parent>`) prose? A trait's `<description>` is; the lore
 /// `<description>` (paragraphs) isn't.
 pub fn is_prose(parent: &str, tag: &str) -> bool {
-    PROSE.contains(&tag) || (tag == "description" && parent == "trait")
+    PROSE.contains(&tag) || (tag == "description" && parent == "trait") || (tag == "name" && parent == "magicItem")
 }
 
 /// An action's children other than its prose.
@@ -109,6 +117,10 @@ const ORDER: &[(&str, &[&str])] = &[
     ("bonusActions", &["multiattack", "*"]),
     ("legendaryActions", &["uses", "*"]),
     ("swarm", &["swarmSize", "memberSize"]),
+    // magic items
+    ("magicItem", &["name", "type", "subtypes", "rarities", "attunement", "description", "reference"]),
+    ("table", &["title", "header", "tableBody", "footer"]),
+    ("sidebar", &["title", "subtitle", "*"]),
 ];
 
 /// Where `<tag>` goes among `<parent>`'s children: lower first; a list's items share one.
@@ -365,8 +377,11 @@ fn read_el(source: &str, nodes: &[StructNode], parent: &str, idx: usize, path: V
     El { tag: n.tag.clone(), path: Some(path), attrs, text, kids }
 }
 
-/// The `<monster>` at the root's child `child`; None when there isn't one there.
+/// The `<monster>` at the root's child `child` (or the root, for [`ROOT`]).
 fn monster_node(nodes: &[StructNode], child: usize) -> Result<usize, String> {
+    if child == ROOT {
+        return nodes.first().map(|_| 0).ok_or_else(|| "the file is empty".to_string());
+    }
     let root = nodes.first().filter(|r| r.tag == "monsters").ok_or("this isn't a monster file")?;
     root.children
         .get(child)
@@ -390,7 +405,8 @@ fn node_at(nodes: &[StructNode], m: usize, path: &[usize], tag: &str) -> Result<
 pub fn read(source: &str, child: usize) -> Option<El> {
     let nodes = parse_all(source).ok()?.nodes;
     let m = monster_node(&nodes, child).ok()?;
-    Some(read_el(source, &nodes, "monsters", m, Vec::new()))
+    let parent = if child == ROOT { "" } else { "monsters" };
+    Some(read_el(source, &nodes, parent, m, Vec::new()))
 }
 
 /// How many inline refs (and legendary ref items) in the stat block point at `id`.
@@ -676,7 +692,11 @@ pub fn plan(source: &str, e: &StatEdit) -> Result<String, String> {
         StatEdit::Update { child, el, scope } => {
             let path = el.path.clone().ok_or("that element isn't in the file yet")?;
             let idx = node_at(&nodes, m, &path, &el.tag)?;
-            let parent = if path.is_empty() { "monsters".to_string() } else { tag_at(&nodes, m, &path[..path.len() - 1]) };
+            let parent = match (path.is_empty(), *child == ROOT) {
+                (true, true) => String::new(),
+                (true, false) => "monsters".to_string(),
+                _ => tag_at(&nodes, m, &path[..path.len() - 1]),
+            };
             let mut d = Diff {
                 source,
                 nodes: &nodes,
@@ -727,6 +747,9 @@ pub fn plan(source: &str, e: &StatEdit) -> Result<String, String> {
         }
         StatEdit::Delete { path, tag, .. } => {
             if path.is_empty() {
+                if e.child() == ROOT {
+                    return Err("can't delete the file's root".into());
+                }
                 return Err("delete a stat block from the stat block list".into());
             }
             let n = node_at(&nodes, m, path, tag)?;
@@ -826,11 +849,19 @@ pub fn inline_spec(tag: &str) -> Option<&'static InlineSpec> {
 
 /// An inline tag as XML: attributes in spec order (empty ones left out), and its text.
 pub fn inline_xml(tag: &str, attrs: &[(String, String)], text: &str) -> String {
+    build_inline(tag, inline_spec(tag).is_some_and(|sp| sp.text.is_some()), attrs, text)
+}
+
+/// [`inline_xml`] for a spec from any list (a magic item's tags, say).
+pub fn inline_xml_with(spec: &InlineSpec, attrs: &[(String, String)], text: &str) -> String {
+    build_inline(spec.tag, spec.text.is_some(), attrs, text)
+}
+
+fn build_inline(tag: &str, has_text: bool, attrs: &[(String, String)], text: &str) -> String {
     let mut s = format!("<{tag}");
     for (k, v) in attrs.iter().filter(|(_, v)| !v.trim().is_empty()) {
         s.push_str(&format!(" {k}=\"{}\"", escape_attr(v.trim(), '"')));
     }
-    let has_text = inline_spec(tag).is_some_and(|sp| sp.text.is_some());
     if has_text {
         format!("{s}>{}</{tag}>", escape_text(text))
     } else {
