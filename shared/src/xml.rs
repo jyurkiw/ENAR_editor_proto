@@ -85,6 +85,18 @@ fn push_text(frames: &mut [Frame], text: &str) {
 }
 
 pub fn parse(source: &str) -> Result<Parsed, AppError> {
+    parse_opts(source, false)
+}
+
+/// [`parse`] opening every element but mixed content, in monster files too: the forms
+/// for a monster family's parts need the elements inside them (quote paragraphs, table
+/// cells, lair effects), which the monster tree leaves closed. The root's children are
+/// the same nodes, in the same order, as [`parse`] gives.
+pub fn parse_full(source: &str) -> Result<Parsed, AppError> {
+    parse_opts(source, true)
+}
+
+fn parse_opts(source: &str, full: bool) -> Result<Parsed, AppError> {
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut nodes: Vec<StructNode> = Vec::new();
@@ -120,7 +132,7 @@ pub fn parse(source: &str) -> Result<Parsed, AppError> {
                 }
                 // Which elements the tree opens: in a monster file, the family, its lairs
                 // and stat blocks and their entry lists; elsewhere, all but mixed content.
-                let open = if root.as_ref().is_some_and(|(t, _)| t == "monsters") {
+                let open = if !full && root.as_ref().is_some_and(|(t, _)| t == "monsters") {
                     crate::monster::TREE_OPEN.contains(&tag.as_str())
                 } else {
                     !MIXED.contains(&tag.as_str())

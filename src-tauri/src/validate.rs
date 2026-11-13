@@ -524,6 +524,93 @@ mod real {
         assert!(doc.warnings.is_empty(), "{:?}", doc.warnings);
     }
 
+    /// The family's header and parts, edited against the real monster schema.
+    #[test]
+    #[ignore]
+    fn family_round_trip() {
+        use shared::family::{self, FamilyEdit, ImageModel, PartAt};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures/compiler-test")).unwrap();
+        let file = t.path().join("kennel-abomination.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/adventures/compiler-test/kennel-abomination.xml")).unwrap();
+        // The temp folder is one deeper: point the schema location one level further up.
+        std::fs::write(&file, src.replace("\"../../schemas/", "\"../../../schemas/")).unwrap();
+        let path = path_str(&file);
+        let run = |expected: &str, edit: FamilyEdit| {
+            let change = shared::Change::Family { edit };
+            match apply_edit(&path, expected, &p, &v, |s| change.plan(s)).unwrap() {
+                ApplyResult::Saved { doc } => doc,
+                other => panic!("{change:?} refused: {other:?}"),
+            }
+        };
+        let fam = |s: &str| family::read(s).unwrap();
+        let part = |s: &str, tag: &str, nth: usize| -> PartAt { fam(s).parts.into_iter().filter(|x| x.tag == tag).nth(nth).unwrap().at() };
+        let doc = open_file(&path, &p, &v).unwrap();
+        assert!(doc.warnings.is_empty(), "{:?}", doc.warnings);
+
+        // Header: drop the subtitle and a habitat, add treasure; then put the subtitle back.
+        let mut h = fam(&doc.source).header;
+        let brief = h.brief.clone();
+        h.brief.clear();
+        h.brief_id.clear();
+        h.habitats.retain(|x| x != "Hill");
+        h.treasure.push("Relics".into());
+        let doc = run(&doc.source, FamilyEdit::Header { model: h.clone() });
+        assert!(!doc.source.contains("<brief id=\"subtitle\""));
+        h.brief = brief;
+        h.brief_id = "subtitle".into();
+        let doc = run(&doc.source, FamilyEdit::Header { model: h });
+        assert_eq!(fam(&doc.source).header.treasure, vec!["None", "Relics"]);
+
+        // A quote box and an image right after the header: they validate as added.
+        let doc = run(&doc.source, FamilyEdit::AddParts { after: None, tags: vec!["quoteBox".into(), "image".into()] });
+        let q = part(&doc.source, "quoteBox", 0);
+        let doc = run(&doc.source, FamilyEdit::SetPara { at: q.clone(), n: 0, text: "A second <i>quote</i>.".into() });
+        let doc = run(&doc.source, FamilyEdit::Attribution { at: q, name: "A Witness".into() });
+        let img = part(&doc.source, "image", 0);
+        let model = ImageModel { src: "ossivore.png".into(), name: "Second".into(), credit: "Someone".into(), cutline: "The <shortNounRef/> again.".into(), ..Default::default() };
+        let doc = run(&doc.source, FamilyEdit::Image { at: img, model });
+
+        // A new lair, its effects and closing line; moved to the front of the parts.
+        let last = fam(&doc.source).parts.last().unwrap().child;
+        let doc = run(&doc.source, FamilyEdit::AddParts { after: Some(last), tags: vec!["lair".into(), "description".into(), "distinctionTable".into()] });
+        let l = part(&doc.source, "lair", 2);
+        let doc = run(&doc.source, FamilyEdit::Lair { at: l.clone(), name: "The Third Den".into(), end_verb: "dies".into() });
+        let doc = run(&doc.source, FamilyEdit::AddEffect { at: l.clone(), after: Some(0) });
+        let doc = run(&doc.source, FamilyEdit::SetEffect { at: l.clone(), n: 1, id: "den-howl".into(), name: "Den Howl".into(), text: "The <shortNounRef/> howls.".into() });
+        let doc = run(&doc.source, FamilyEdit::AddPara { at: l.clone(), after: None });
+        let doc = run(&doc.source, FamilyEdit::SetPara { at: l.clone(), n: 0, text: "A den.".into() });
+        let first = fam(&doc.source).parts[0].child;
+        let doc = run(&doc.source, FamilyEdit::MovePart { at: l, before: Some(first) });
+        assert_eq!(fam(&doc.source).parts[0].name, "The Third Den");
+
+        // The new table, reshaped; the new description, filled in.
+        let dt = part(&doc.source, "distinctionTable", 1);
+        let doc = run(&doc.source, FamilyEdit::Table { at: dt, heads: vec!["1d2".into(), "Quirk".into()], rows: vec![vec!["1".into(), "One".into()], vec!["2".into(), "<b>Two</b>".into()]] });
+        let d = part(&doc.source, "description", 1);
+        let doc = run(&doc.source, FamilyEdit::SetPara { at: d.clone(), n: 0, text: "More lore.".into() });
+        let doc = run(&doc.source, FamilyEdit::SetId { at: d, id: "more-lore".into() });
+
+        // Renaming a lair renames its lairRefs; deleting one drops them.
+        let kennel = fam(&doc.source).parts.into_iter().find(|x| x.id == "kennel").unwrap().at();
+        let doc = run(&doc.source, FamilyEdit::SetId { at: kennel, id: "old-kennel".into() });
+        assert!(doc.source.contains("<lairRef ref=\"old-kennel\"/>"));
+        let shrine = fam(&doc.source).parts.into_iter().find(|x| x.id == "shrine").unwrap().at();
+        let doc = run(&doc.source, FamilyEdit::DeletePart { at: shrine });
+        assert!(!doc.source.contains("shrine"));
+        // A duplicate id is refused before validation.
+        let d = part(&doc.source, "description", 0);
+        assert!(family::plan(&doc.source, &FamilyEdit::SetId { at: d, id: "old-kennel".into() }).is_err());
+        // A schema error (a width that isn't a number) is refused, and nothing is written.
+        let img = part(&doc.source, "image", 1);
+        let bad = FamilyEdit::Image { at: img, model: ImageModel { src: "x.png".into(), width: "wide".into(), ..Default::default() } };
+        let r = apply_edit(&path, &doc.source, &p, &v, |s| family::plan(s, &bad)).unwrap();
+        let ApplyResult::Invalid { problems } = r else { panic!("expected a refusal") };
+        println!("bad width: {problems:?}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), doc.source);
+        println!("{}", doc.source);
+    }
+
     #[test]
     #[ignore]
     fn new_skeleton_validates() {

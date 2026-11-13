@@ -148,6 +148,10 @@ pub struct DocTab {
     /// were made from, the new text), and paths whose last apply was refused.
     pub raw_drafts: RwSignal<HashMap<Vec<usize>, (String, String)>>,
     pub raw_failed: RwSignal<HashSet<Vec<usize>>>,
+    /// The monster family's forms: drafts by key (see family_form::draft_key) as (the
+    /// text they were made from, the new text), and keys whose last apply was refused.
+    pub fam_drafts: RwSignal<HashMap<String, (String, String)>>,
+    pub fam_failed: RwSignal<HashSet<String>>,
     /// What the file's `<reference>` entries print, for the paragraph preview: None
     /// while loading, Err when the backend couldn't read them.
     pub refs: RwSignal<Option<Result<shared::inline::RefIndex, String>>>,
@@ -194,6 +198,8 @@ impl DocTab {
             box_focus: RwSignal::new(None),
             raw_drafts: RwSignal::new(HashMap::new()),
             raw_failed: RwSignal::new(HashSet::new()),
+            fam_drafts: RwSignal::new(HashMap::new()),
+            fam_failed: RwSignal::new(HashSet::new()),
             refs: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),

@@ -196,6 +196,7 @@ const POINTERS: &[(&str, &str, Ctx, &str)] = &[
     ("monster", "ref", Ctx::Outside, "monster"),
     ("monsterRef", "ref", Ctx::Any, "monster"),
     ("monsterStatblock", "ref", Ctx::Any, "monster"),
+    ("monsterEntry", "ref", Ctx::Any, "monster"),
     ("monster", "summonerRef", Ctx::Inside, "monster"),
     ("spellRef", "ref", Ctx::Any, "spell"),
     ("spellBlock", "ref", Ctx::Any, "spell"),

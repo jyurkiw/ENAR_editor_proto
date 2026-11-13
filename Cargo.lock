@@ -959,6 +959,7 @@ dependencies = [
  "leptos",
  "serde",
  "serde-wasm-bindgen",
+ "serde_json",
  "shared",
  "wasm-bindgen",
  "wasm-bindgen-futures",

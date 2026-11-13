@@ -8,6 +8,7 @@ use shared::chapter::{self, ChapterEdit};
 use shared::block::{self, BlockEdit, Container};
 use shared::reference::RefEdit;
 use shared::boxes::{self, BoxEdit};
+use shared::family::{self, FamilyEdit};
 use shared::monster::{self, MonsterEdit};
 use shared::list::{self, ListEdit};
 use shared::table::{self, TableAt, TableEdit};
@@ -23,9 +24,27 @@ pub fn ref_key(tag: &str, id: &str) -> String {
 }
 
 /// What to select once the change is written.
-fn selection(change: &Change) -> impl Fn(&DocData) -> Option<usize> + 'static {
+fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usize> + 'static {
     let change = change.clone();
     move |d: &DocData| match &change {
+        Change::Family { edit } => {
+            let root = d.nodes.first()?;
+            let kid = |c: usize| root.children.get(c).copied();
+            let last_of = |tags: &[&str]| root.children.iter().rposition(|c| tags.contains(&d.nodes[*c].tag.as_str()));
+            match edit {
+                // A new part opens in its form; moving one keeps it selected, unless the
+                // family's page (where the list is) was showing.
+                FamilyEdit::AddParts { after, .. } => kid(after.map_or(last_of(family::HEADER)? + 1, |a| a + 1)),
+                FamilyEdit::DeletePart { .. } => Some(0),
+                FamilyEdit::MovePart { .. } if on_root => Some(0),
+                FamilyEdit::MovePart { at, before } => kid(match before {
+                    Some(b) if *b > at.child => b - 1,
+                    Some(b) => *b,
+                    None => last_of(family::PARTS)?,
+                }),
+                _ => None,
+            }
+        }
         Change::Cover { model } => model.present.then(|| d.find_tag("cover")).flatten(),
         Change::Chapter { edit } => match edit {
             ChapterEdit::Update { model, .. } => chapter::find_chapter(&d.source, &d.nodes, &model.name),
@@ -98,13 +117,14 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
     }
     let app = ctx();
     let data = tab.doc_untracked();
+    let on_root = tab.selected.get_untracked() == 0;
     tab.applying.set(true);
     spawn_local(async move {
         match api::apply_change(&data.path, &data.source, &change).await {
             Ok(ApplyResult::Saved { doc }) => {
                 saved(tab, &change, card.as_deref());
                 tab.clear_problems();
-                tab.replace_doc(doc, selection(&change));
+                tab.replace_doc(doc, selection(&change, on_root));
                 if matches!(change, Change::Reference { .. }) {
                     tab.refresh_refs();
                 }
@@ -135,6 +155,14 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                     };
                     let k = (at.clone(), slot);
                     tab.box_failed.update(|f| {
+                        f.insert(k);
+                    });
+                }
+                if let Some(k) = match &change {
+                    Change::Family { edit } => crate::family_form::draft_key(edit),
+                    _ => None,
+                } {
+                    tab.fam_failed.update(|f| {
                         f.insert(k);
                     });
                 }
@@ -217,6 +245,24 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
             tab.raw_failed.update(|f| {
                 f.remove(&k);
             });
+        }
+        Change::Family { edit } => {
+            if let Some(k) = crate::family_form::draft_key(edit) {
+                tab.fam_drafts.update(|d| {
+                    d.remove(&k);
+                });
+                tab.fam_failed.update(|f| {
+                    f.remove(&k);
+                });
+            }
+            // Parts added, moved or deleted (or a brief or habitats line added or
+            // removed): the root's child indexes after them shifted.
+            if edit.reshapes() || matches!(edit, FamilyEdit::Header { .. }) {
+                tab.fam_drafts.update(|d| d.retain(|k, _| k == "header"));
+                tab.fam_failed.update(|f| f.retain(|k| k == "header"));
+                tab.raw_drafts.update(|d| d.clear());
+                tab.raw_failed.update(|f| f.clear());
+            }
         }
         // Stat blocks added, moved or deleted: tree paths after them shifted.
         Change::Monster { .. } => {

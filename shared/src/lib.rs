@@ -10,6 +10,7 @@ pub mod cover;
 pub mod display;
 pub mod edit;
 pub mod element;
+pub mod family;
 pub mod inline;
 pub mod list;
 pub mod monster;
@@ -304,6 +305,8 @@ pub enum Change {
     Element { edit: element::ElementEdit },
     /// Add, delete or move a stat block (monster files).
     Monster { edit: monster::MonsterEdit },
+    /// The family's header and parts (monster files).
+    Family { edit: family::FamilyEdit },
 }
 
 impl Change {
@@ -318,6 +321,7 @@ impl Change {
             Change::Box { edit } => boxes::plan(source, edit),
             Change::Element { edit } => element::plan(source, edit),
             Change::Monster { edit } => monster::plan(source, edit),
+            Change::Family { edit } => family::plan(source, edit),
         }
     }
 }

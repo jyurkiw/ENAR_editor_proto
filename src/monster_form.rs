@@ -8,10 +8,12 @@ use leptos::ev::{KeyboardEvent, MouseEvent};
 use leptos::prelude::*;
 use shared::display::reindent;
 use shared::element::{self, ElementEdit};
+use shared::family::{self, HEADER, PARTS};
 use shared::monster::{self, MonsterEdit};
 use shared::Change;
 
 use crate::apply::apply;
+use crate::family_form::{FamilyPage, HeaderPage, PartPage};
 use crate::state::DocTab;
 
 fn confirm(msg: &str) -> bool {
@@ -218,16 +220,59 @@ fn RawEditor(tab: DocTab, path: StoredValue<Vec<usize>>, tag: StoredValue<String
     }
 }
 
-/// The main area for a monster file, at the element with this tree path and tag.
+/// The main area for a monster file, at the element with this tree path and tag: the
+/// family's page (header, parts, stat blocks), the header, a part's form, or the raw
+/// editor (stat blocks, for now). Pages with a form keep the element's raw XML below.
 #[component]
 pub fn MonsterForm(tab: DocTab, path: Vec<usize>, tag: String) -> impl IntoView {
+    let fam = Memo::new(move |_| family::read(&tab.doc().source));
+    // The part (a root child) this element is in, if any.
+    let top = path.first().copied().and_then(|c| {
+        let d = tab.doc_untracked();
+        let t = d.nodes.first()?.children.get(c).map(|i| d.nodes[*i].tag.clone())?;
+        PARTS.contains(&t.as_str()).then_some((c, t))
+    });
+    let page = if path.is_empty() {
+        Page::Family
+    } else if path.len() == 1 && HEADER.contains(&tag.as_str()) {
+        Page::Header
+    } else if let Some((c, t)) = top {
+        Page::Part(c, t)
+    } else {
+        Page::Raw
+    };
     let stat_panel = path.is_empty() || tag == "monster";
+    let raw_dirty = tab.raw_drafts.with_untracked(|d| d.contains_key(&path));
+    let raw_only = matches!(page, Page::Raw);
     let path = StoredValue::new(path);
     let tag = StoredValue::new(tag);
+    let page_view = match page {
+        Page::Family => view! { <FamilyPage tab fam/> }.into_any(),
+        Page::Header => view! { <HeaderPage tab fam/> }.into_any(),
+        Page::Part(child, t) => view! { <PartPage tab fam child tag=t/> }.into_any(),
+        Page::Raw => ().into_any(),
+    };
     view! {
         <div class="table-editor monster-editor">
+            {page_view}
             {stat_panel.then(|| view! { <StatBlocks tab path/> })}
-            <RawEditor tab path tag/>
+            {if raw_only {
+                view! { <RawEditor tab path tag/> }.into_any()
+            } else {
+                view! {
+                    <details class="raw-details" open=raw_dirty>
+                        <summary>{move || format!("Raw XML of <{}>", tag.get_value())}</summary>
+                        <RawEditor tab path tag/>
+                    </details>
+                }.into_any()
+            }}
         </div>
     }
+}
+
+enum Page {
+    Family,
+    Header,
+    Part(usize, String),
+    Raw,
 }
