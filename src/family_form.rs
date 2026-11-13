@@ -18,7 +18,7 @@ use wasm_bindgen::JsCast;
 use crate::apply::apply;
 use crate::state::DocTab;
 
-fn confirm(msg: &str) -> bool {
+pub(crate) fn confirm(msg: &str) -> bool {
     web_sys::window().and_then(|w| w.confirm_with_message(msg).ok()).unwrap_or(false)
 }
 
@@ -26,14 +26,14 @@ fn edit(tab: DocTab, e: FamilyEdit) {
     apply(tab, Change::Family { edit: e });
 }
 
-fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
+pub(crate) fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
     ev.related_target()
         .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
         .zip(el.get())
         .is_some_and(|(n, e)| e.contains(Some(&n)))
 }
 
-fn json<T: Serialize>(v: &T) -> String {
+pub(crate) fn json<T: Serialize>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_default()
 }
 
@@ -58,32 +58,32 @@ pub fn draft_key(e: &FamilyEdit) -> Option<String> {
 /// text): when the file changes under it, the draft no longer matches and is dropped.
 /// Field groups keep their model as JSON.
 #[derive(Clone, Copy)]
-struct Draft {
+pub(crate) struct Draft {
     tab: DocTab,
     key: StoredValue<String>,
     base: Memo<String>,
 }
 
 impl Draft {
-    fn new(tab: DocTab, key: String, base: Memo<String>) -> Self {
+    pub(crate) fn new(tab: DocTab, key: String, base: Memo<String>) -> Self {
         Draft { tab, key: StoredValue::new(key), base }
     }
-    fn get(&self) -> Option<String> {
+    pub(crate) fn get(&self) -> Option<String> {
         let b = self.base.get();
         let k = self.key.get_value();
         self.tab.fam_drafts.with(|d| d.get(&k).filter(|(o, _)| *o == b).map(|(_, t)| t.clone()))
     }
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         self.get().unwrap_or_else(|| self.base.get())
     }
-    fn dirty(&self) -> bool {
+    pub(crate) fn dirty(&self) -> bool {
         self.get().is_some()
     }
-    fn failed(&self) -> bool {
+    pub(crate) fn failed(&self) -> bool {
         let k = self.key.get_value();
         self.tab.fam_failed.with(|f| f.contains(&k))
     }
-    fn set(&self, v: String) {
+    pub(crate) fn set(&self, v: String) {
         let b = self.base.get_untracked();
         let k = self.key.get_value();
         self.tab.fam_drafts.update(|d| {
@@ -94,7 +94,7 @@ impl Draft {
             }
         });
     }
-    fn revert(&self) {
+    pub(crate) fn revert(&self) {
         let k = self.key.get_value();
         self.tab.fam_drafts.update(|d| {
             d.remove(&k);
@@ -103,10 +103,10 @@ impl Draft {
             f.remove(&k);
         });
     }
-    fn model<T: DeserializeOwned + Default>(&self) -> T {
+    pub(crate) fn model<T: DeserializeOwned + Default>(&self) -> T {
         serde_json::from_str(&self.text()).unwrap_or_default()
     }
-    fn change<T: Serialize + DeserializeOwned + Default>(&self, f: impl FnOnce(&mut T)) {
+    pub(crate) fn change<T: Serialize + DeserializeOwned + Default>(&self, f: impl FnOnce(&mut T)) {
         let mut m: T = serde_json::from_str(&self.get().unwrap_or_else(|| self.base.get_untracked())).unwrap_or_default();
         f(&mut m);
         self.set(json(&m));
@@ -114,7 +114,7 @@ impl Draft {
 }
 
 /// The state badges and Revert / Apply.
-fn bar(d: Draft, busy: Signal<bool>, apply_it: impl Fn() + Copy + Send + Sync + 'static) -> impl IntoView {
+pub(crate) fn bar(d: Draft, busy: Signal<bool>, apply_it: impl Fn() + Copy + Send + Sync + 'static) -> impl IntoView {
     view! {
         <div class="p-bar fam-bar">
             {move || d.failed().then(|| view! { <span class="state-badge bad">"refused — see Problems"</span> })}
@@ -667,11 +667,11 @@ fn TableForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
                                     </td>
                                 }).collect_view()}
                                 <td class="row-tools">
-                                    <button class="icon-btn" title="Move up" disabled=r == 0
+                                    <button class="icon-btn" title="Move up" disabled={r == 0}
                                         on:click=move |_| d.change(|x: &mut Grid| if r > 0 { x.rows.swap(r, r - 1) })>"↑"</button>
-                                    <button class="icon-btn" title="Move down" disabled=r + 1 >= rows
+                                    <button class="icon-btn" title="Move down" disabled={r + 1 >= rows}
                                         on:click=move |_| d.change(|x: &mut Grid| if r + 1 < x.rows.len() { x.rows.swap(r, r + 1) })>"↓"</button>
-                                    <button class="icon-btn danger" title="Delete this row" disabled=rows <= 1
+                                    <button class="icon-btn danger" title="Delete this row" disabled={rows <= 1}
                                         on:click=move |_| d.change(|x: &mut Grid| if x.rows.len() > 1 { x.rows.remove(r); })>"✕"</button>
                                 </td>
                             </tr>

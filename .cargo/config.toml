@@ -1,0 +1,5 @@
+# The frontend's wasm stack: 8 MB instead of the default 1 MB. Unoptimized (dev) builds
+# give the big form components large stack frames; 1 MB overflowed ("memory access out
+# of bounds") when a stat block's page first rendered.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]

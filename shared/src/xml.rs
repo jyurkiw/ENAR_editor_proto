@@ -85,7 +85,17 @@ fn push_text(frames: &mut [Frame], text: &str) {
 }
 
 pub fn parse(source: &str) -> Result<Parsed, AppError> {
-    parse_opts(source, false)
+    parse_opts(source, Mode::Tree)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    /// The file-structure tree (a monster file opens only its TREE_OPEN elements).
+    Tree,
+    /// Everything but mixed content.
+    Full,
+    /// Everything, mixed content and inline tags too.
+    All,
 }
 
 /// [`parse`] opening every element but mixed content, in monster files too: the forms
@@ -93,10 +103,18 @@ pub fn parse(source: &str) -> Result<Parsed, AppError> {
 /// cells, lair effects), which the monster tree leaves closed. The root's children are
 /// the same nodes, in the same order, as [`parse`] gives.
 pub fn parse_full(source: &str) -> Result<Parsed, AppError> {
-    parse_opts(source, true)
+    parse_opts(source, Mode::Full)
 }
 
-fn parse_opts(source: &str, full: bool) -> Result<Parsed, AppError> {
+/// Every element as a node, inline tags inside mixed content included (a node with text
+/// directly inside is marked `leaf` but keeps its children). The stat block forms read
+/// and edit a monster with it. Down to the first element with text inside, the nodes
+/// are the same, in the same order, as [`parse_full`] gives.
+pub fn parse_all(source: &str) -> Result<Parsed, AppError> {
+    parse_opts(source, Mode::All)
+}
+
+fn parse_opts(source: &str, mode: Mode) -> Result<Parsed, AppError> {
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);
     let mut nodes: Vec<StructNode> = Vec::new();
@@ -132,7 +150,9 @@ fn parse_opts(source: &str, full: bool) -> Result<Parsed, AppError> {
                 }
                 // Which elements the tree opens: in a monster file, the family, its lairs
                 // and stat blocks and their entry lists; elsewhere, all but mixed content.
-                let open = if !full && root.as_ref().is_some_and(|(t, _)| t == "monsters") {
+                let open = if mode == Mode::All {
+                    true
+                } else if mode == Mode::Tree && root.as_ref().is_some_and(|(t, _)| t == "monsters") {
                     crate::monster::TREE_OPEN.contains(&tag.as_str())
                 } else {
                     !MIXED.contains(&tag.as_str())
@@ -172,7 +192,7 @@ fn parse_opts(source: &str, full: bool) -> Result<Parsed, AppError> {
                 if f.direct_text {
                     node.leaf = true;
                 }
-                if node.leaf {
+                if node.leaf && mode != Mode::All {
                     node.children.clear();
                 }
                 texts[f.idx] = f.text;

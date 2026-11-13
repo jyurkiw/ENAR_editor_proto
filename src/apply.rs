@@ -10,6 +10,7 @@ use shared::reference::RefEdit;
 use shared::boxes::{self, BoxEdit};
 use shared::family::{self, FamilyEdit};
 use shared::monster::{self, MonsterEdit};
+use shared::statblock::StatEdit;
 use shared::list::{self, ListEdit};
 use shared::table::{self, TableAt, TableEdit};
 use shared::{ApplyResult, Change};
@@ -81,6 +82,11 @@ fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usiz
         }
         // The element keeps its place: the selection stays (found again by its path).
         Change::Element { .. } => None,
+        // The stat block's page stays; a deleted item's tree node falls back to its list.
+        Change::Stat { edit } => match edit {
+            StatEdit::Delete { child, .. } => d.nodes.first()?.children.get(*child).copied(),
+            _ => None,
+        },
         Change::Monster { edit } => match edit {
             MonsterEdit::Add { id, .. } | MonsterEdit::Move { id, .. } => monster::find_monster(&d.source, &d.nodes, id),
             MonsterEdit::Delete { .. } => Some(0),
@@ -160,6 +166,7 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
                 }
                 if let Some(k) = match &change {
                     Change::Family { edit } => crate::family_form::draft_key(edit),
+                    Change::Stat { edit } => crate::statblock_form::draft_key(edit),
                     _ => None,
                 } {
                     tab.fam_failed.update(|f| {
@@ -263,6 +270,20 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 tab.raw_drafts.update(|d| d.clear());
                 tab.raw_failed.update(|f| f.clear());
             }
+        }
+        Change::Stat { edit } => {
+            // A draft whose element moved no longer matches its file text, and is dropped
+            // when read; this one was applied.
+            if let Some(k) = crate::statblock_form::draft_key(edit) {
+                tab.fam_drafts.update(|d| {
+                    d.remove(&k);
+                });
+                tab.fam_failed.update(|f| {
+                    f.remove(&k);
+                });
+            }
+            tab.raw_drafts.update(|d| d.clear());
+            tab.raw_failed.update(|f| f.clear());
         }
         // Stat blocks added, moved or deleted: tree paths after them shifted.
         Change::Monster { .. } => {

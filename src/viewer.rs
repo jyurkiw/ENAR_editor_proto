@@ -52,7 +52,16 @@ enum FormKind {
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     let n = d.nodes.get(idx)?;
     if d.kind == shared::DocKind::Monsters {
-        return Some(FormKind::Monster(d.key_of(idx), n.tag.clone()));
+        let key = d.key_of(idx);
+        // Anything in a stat block: its page (one form for all of it), unless it's a template.
+        if let Some(&c) = key.first() {
+            if let Some(m) = d.nodes[0].children.get(c).map(|i| &d.nodes[*i]) {
+                if m.tag == "monster" && !shared::monster::is_template(&d.source, m) {
+                    return Some(FormKind::Monster(vec![c], "monster".into()));
+                }
+            }
+        }
+        return Some(FormKind::Monster(key, n.tag.clone()));
     }
     // A table, or anything inside one: the table editor.
     let mut cur = Some(idx);

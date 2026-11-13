@@ -15,6 +15,7 @@ pub mod inline;
 pub mod list;
 pub mod monster;
 pub mod reference;
+pub mod statblock;
 pub mod table;
 pub mod values;
 pub mod xml;
@@ -307,6 +308,8 @@ pub enum Change {
     Monster { edit: monster::MonsterEdit },
     /// The family's header and parts (monster files).
     Family { edit: family::FamilyEdit },
+    /// A stat block's fields, traits and actions (monster files).
+    Stat { edit: statblock::StatEdit },
 }
 
 impl Change {
@@ -322,6 +325,7 @@ impl Change {
             Change::Element { edit } => element::plan(source, edit),
             Change::Monster { edit } => monster::plan(source, edit),
             Change::Family { edit } => family::plan(source, edit),
+            Change::Stat { edit } => statblock::plan(source, edit),
         }
     }
 }

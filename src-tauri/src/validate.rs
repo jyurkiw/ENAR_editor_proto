@@ -524,6 +524,165 @@ mod real {
         assert!(doc.warnings.is_empty(), "{:?}", doc.warnings);
     }
 
+    /// Every stat block in the data: each card applied unchanged writes nothing.
+    #[test]
+    #[ignore]
+    fn stat_cards_unchanged_are_no_ops() {
+        use shared::statblock::{self as sb, El, StatEdit};
+        fn xmls(dir: &Path, out: &mut Vec<PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if p.is_dir() && !name.starts_with('.') && name != "node_modules" && name != "target" {
+                    xmls(&p, out);
+                } else if name.ends_with(".xml") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        xmls(Path::new(REPO), &mut files);
+        let (mut checked, mut failures) = (0, Vec::new());
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            if !src.contains("<monsters") {
+                continue;
+            }
+            let Ok(p) = xmldoc::parse(&src) else { continue };
+            for (c, mi) in p.nodes[0].children.iter().enumerate() {
+                let n = &p.nodes[*mi];
+                if n.tag != "monster" || shared::monster::is_template(&src, n) {
+                    continue;
+                }
+                let m = sb::read(&src, c).unwrap();
+                let scoped = |e: &El, tags: &[&str]| {
+                    let mut x = e.clone();
+                    x.kids.retain(|k| tags.contains(&k.tag.as_str()));
+                    (x, Some(tags.iter().map(|t| t.to_string()).collect::<Vec<_>>()))
+                };
+                let mut cards = vec![scoped(&m, &["name"]), scoped(&m, &["brief", "habitats", "lairRef"])];
+                for k in &m.kids {
+                    match k.tag.as_str() {
+                        "heading" | "statBlock" | "attributes" | "quoteBox" | "image" | "description" | "distinctionTable" => cards.push((k.clone(), None)),
+                        "traits" | "actions" | "bonusActions" | "reactions" | "legendaryActions" => {
+                            cards.push(scoped(k, &["multiattack"]));
+                            cards.push(scoped(k, &["uses"]));
+                            cards.extend(k.kids.iter().filter(|i| i.tag == "trait" || sb::ITEMS.contains(&i.tag.as_str())).map(|i| (i.clone(), None)));
+                        }
+                        _ => {}
+                    }
+                }
+                checked += 1;
+                for (el, scope) in cards {
+                    let tag = el.tag.clone();
+                    match sb::plan(&src, &StatEdit::Update { child: c, el, scope }) {
+                        Ok(out) if out == src => {}
+                        Ok(out) => {
+                            let at = src.bytes().zip(out.bytes()).position(|(a, b)| a != b).unwrap_or(0);
+                            failures.push(format!("{}: {} <{tag}> changed near: {:?}", f.display(), m.get("id"), &src[at.saturating_sub(40)..(at + 40).min(src.len())]));
+                        }
+                        Err(e) => failures.push(format!("{}: {} <{tag}>: {e}", f.display(), m.get("id"))),
+                    }
+                }
+            }
+        }
+        println!("{checked} stat blocks checked");
+        assert!(checked > 300);
+        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// A real stat block edited through its cards, against the monster schema.
+    #[test]
+    #[ignore]
+    fn stat_block_round_trip() {
+        use shared::statblock::{self as sb, El, StatEdit};
+        let (p, v) = setup();
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures/compiler-test")).unwrap();
+        let file = t.path().join("aboleth.xml");
+        let src = std::fs::read_to_string(format!("{REPO}/shared/internal/monsters/aboleth.xml")).unwrap();
+        let k = src.find("noNamespaceSchemaLocation=\"").unwrap() + "noNamespaceSchemaLocation=\"".len();
+        let e = k + src[k..].find('"').unwrap();
+        let src = format!("{}../../../schemas/monster-template-schema.xsd{}", &src[..k], &src[e..]);
+        std::fs::write(&file, &src).unwrap();
+        let path = path_str(&file);
+        let doc = open_file(&path, &p, &v).unwrap();
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        let child = doc.nodes[0].children.iter().position(|c| doc.nodes[*c].tag == "monster").unwrap();
+        let run = |expected: &str, edit: StatEdit| {
+            let change = shared::Change::Stat { edit };
+            match apply_edit(&path, expected, &p, &v, |s| change.plan(s)).unwrap() {
+                ApplyResult::Saved { doc } => doc,
+                other => panic!("{change:?} refused: {other:?}"),
+            }
+        };
+        let m = |s: &str| sb::read(s, child).unwrap();
+        let up = |s: &str, el: El| run(s, StatEdit::Update { child, el, scope: None });
+
+        // Heading: AC, a new climb speed, hit points beside the dice.
+        let mut h = m(&doc.source).kid("heading").unwrap().clone();
+        h.kid_mut("armorClass").unwrap().text = "18".into();
+        h.kid_mut("speeds").unwrap().kids.push(El::new("speed").with("id", "climb").with("name", "climb").with("value", "20"));
+        h.set_opt_text("hitPoints", "150", false);
+        let doc = up(&doc.source, h);
+        assert!(doc.source.contains("<armorClass>18</armorClass>") && doc.source.contains("<hitPoints>150</hitPoints>"));
+
+        // The tentacle: renamed (its refs follow), a rider and a miss.
+        let mut a = m(&doc.source).at(&[("actions", 0), ("attack", 0)]).unwrap().clone();
+        a.set("id", "tendril");
+        a.set("reach", "20");
+        a.insert_kid(El::new("rider").with("damage", "1d6").with("damageType", "psychic"));
+        a.set_opt_text("miss", "The <shortNounRef/> recoils.", false);
+        let doc = up(&doc.source, a);
+        assert!(!doc.source.contains("ref=\"tentacle\"") && doc.source.contains("<attackRef ref=\"tendril\"/>"), "{}", doc.source);
+
+        // Attributes: a skill more, no senses.
+        let mut at = m(&doc.source).kid("attributes").unwrap().clone();
+        at.kid_mut("skills").unwrap().kids.push(El::new("skill").with("name", "arcana").with("stat", "int").with("proficiency", "true"));
+        at.remove_kid("senses");
+        let doc = up(&doc.source, at);
+        assert!(doc.source.contains("name=\"arcana\"") && !doc.source.contains("<senses>"));
+
+        // A trait: uses added; a new trait in, up, and out.
+        let mut tr = m(&doc.source).at(&[("traits", 0), ("trait", 0)]).unwrap().clone();
+        tr.insert_kid(El::new("uses").with("number", "1").with("frequency", "day"));
+        let doc = up(&doc.source, tr);
+        let traits = m(&doc.source).kid("traits").unwrap().clone();
+        let tp = traits.path.clone().unwrap();
+        let new = El::new("trait").with("name", "Slick").with_kid(El::new("description").with_text("It's <condition>prone</condition>-proof."));
+        let doc = run(&doc.source, StatEdit::Insert { child, parent: tp.clone(), parent_tag: "traits".into(), el: new, after: None });
+        let n = m(&doc.source).kid("traits").unwrap().kids.len();
+        let mut last = tp.clone();
+        last.push(n - 1);
+        let doc = run(&doc.source, StatEdit::Move { child, path: last, tag: "trait".into(), before: Some(0) });
+        assert_eq!(m(&doc.source).at(&[("traits", 0), ("trait", 0)]).unwrap().get("name"), "Slick");
+        let mut first = tp.clone();
+        first.push(0);
+        let doc = run(&doc.source, StatEdit::Delete { child, path: first, tag: "trait".into() });
+
+        // New lists: bonus actions, and a reaction with its trigger and response.
+        let ba = El::new("bonusActions").with_kid(El::new("action").with("id", "slither").with("name", "Slither").with_text("It moves."));
+        let doc = run(&doc.source, StatEdit::Insert { child, parent: vec![], parent_tag: "monster".into(), el: ba, after: None });
+        let re = El::new("reactions").with_kid(El::new("action").with("id", "ink").with("name", "Ink").with_text("Ink spreads."));
+        let doc = run(&doc.source, StatEdit::Insert { child, parent: vec![], parent_tag: "monster".into(), el: re, after: None });
+        let mut ink = m(&doc.source).at(&[("reactions", 0), ("action", 0)]).unwrap().clone();
+        ink.set_opt_text("trigger", "It takes damage.", false);
+        ink.set_opt_text("response", "It swims away.", false);
+        ink.text = "Ink fills a 10-foot <area name=\"cube\"/>.".into();
+        let doc = up(&doc.source, ink);
+        let back = m(&doc.source).at(&[("reactions", 0), ("action", 0)]).unwrap().clone();
+        assert_eq!(back.text, "Ink fills a 10-foot <area name=\"cube\"/>.");
+        assert_eq!(back.opt_text("trigger"), "It takes damage.");
+
+        // A schema error (bad dice) is refused, and nothing is written.
+        let mut bad = m(&doc.source).at(&[("actions", 0), ("attack", 0)]).unwrap().clone();
+        bad.set("damage", "2x6");
+        let change = shared::Change::Stat { edit: StatEdit::Update { child, el: bad, scope: None } };
+        let r = apply_edit(&path, &doc.source, &p, &v, |s| change.plan(s)).unwrap();
+        assert!(matches!(r, ApplyResult::Invalid { .. }), "expected a refusal");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), doc.source);
+        println!("{}", doc.source);
+    }
+
     /// The family's header and parts, edited against the real monster schema.
     #[test]
     #[ignore]

@@ -43,6 +43,11 @@ pub fn stat_blocks(source: &str, nodes: &[StructNode]) -> Vec<(String, String)> 
         .collect()
 }
 
+/// A template stat block (`template="true"`): the forms leave it to the raw editor.
+pub fn is_template(source: &str, n: &StructNode) -> bool {
+    attr(source, n, "template").as_deref() == Some("true")
+}
+
 pub fn find_monster(source: &str, nodes: &[StructNode], id: &str) -> Option<usize> {
     monster_nodes(nodes).into_iter().find(|i| attr(source, &nodes[*i], "id").as_deref() == Some(id))
 }

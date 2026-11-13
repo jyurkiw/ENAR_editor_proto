@@ -14,6 +14,7 @@ use shared::Change;
 
 use crate::apply::apply;
 use crate::family_form::{FamilyPage, HeaderPage, PartPage};
+use crate::statblock_form::StatPage;
 use crate::state::DocTab;
 
 fn confirm(msg: &str) -> bool {
@@ -232,7 +233,16 @@ pub fn MonsterForm(tab: DocTab, path: Vec<usize>, tag: String) -> impl IntoView 
         let t = d.nodes.first()?.children.get(c).map(|i| d.nodes[*i].tag.clone())?;
         PARTS.contains(&t.as_str()).then_some((c, t))
     });
-    let page = if path.is_empty() {
+    let stat = (path.len() == 1 && tag == "monster")
+        .then(|| {
+            let d = tab.doc_untracked();
+            let m = &d.nodes[*d.nodes.first()?.children.get(path[0])?];
+            (!monster::is_template(&d.source, m)).then_some(path[0])
+        })
+        .flatten();
+    let page = if let Some(c) = stat {
+        Page::Stat(c)
+    } else if path.is_empty() {
         Page::Family
     } else if path.len() == 1 && HEADER.contains(&tag.as_str()) {
         Page::Header
@@ -250,6 +260,10 @@ pub fn MonsterForm(tab: DocTab, path: Vec<usize>, tag: String) -> impl IntoView 
         Page::Family => view! { <FamilyPage tab fam/> }.into_any(),
         Page::Header => view! { <HeaderPage tab fam/> }.into_any(),
         Page::Part(child, t) => view! { <PartPage tab fam child tag=t/> }.into_any(),
+        Page::Stat(child) => view! { <StatPage tab child/> }.into_any(),
+        Page::Raw if tag.get_value() == "monster" => view! {
+            <div class="notice info">"A template stat block (template=\"true\"): edit it as XML."</div>
+        }.into_any(),
         Page::Raw => ().into_any(),
     };
     view! {
@@ -271,6 +285,7 @@ pub fn MonsterForm(tab: DocTab, path: Vec<usize>, tag: String) -> impl IntoView 
 }
 
 enum Page {
+    Stat(usize),
     Family,
     Header,
     Part(usize, String),
