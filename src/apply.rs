@@ -85,6 +85,11 @@ fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usiz
         Change::Element { .. } => None,
         // The stat block's page stays; a deleted item's tree node falls back to its list.
         Change::Stat { edit } => match edit {
+            // A block added at a file's root (a supplement's credits, say): it opens.
+            StatEdit::Insert { child, parent, el, .. } if *child == shared::statblock::ROOT && parent.is_empty() => {
+                let root = d.nodes.first()?;
+                root.children.iter().rev().copied().find(|c| d.nodes[*c].tag == el.tag)
+            }
             StatEdit::Delete { child, .. } => d.nodes.first()?.children.get(*child).copied(),
             _ => None,
         },
@@ -354,7 +359,7 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                     f.remove(&k);
                 });
             }
-            TableEdit::AddCell { .. } => {}
+            TableEdit::AddCell { .. } | TableEdit::Spans { .. } => {}
             TableEdit::AddRow { at, part, after } => {
                 // Rows from here on shifted.
                 let (at, part, from) = (at.clone(), *part, after.map_or(0, |a| a + 1));

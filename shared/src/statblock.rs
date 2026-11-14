@@ -81,7 +81,8 @@ const PROSE: &[&str] = &[
 /// Is `<tag>` (in `<parent>`) prose? A trait's `<description>` is; the lore
 /// `<description>` (paragraphs) isn't.
 pub fn is_prose(parent: &str, tag: &str) -> bool {
-    PROSE.contains(&tag) || (tag == "description" && parent == "trait") || (tag == "name" && (parent == "magicItem" || parent == "spell"))
+    // A supplement's <data> is a block of values; a reference entry's is prose.
+    (PROSE.contains(&tag) && !(tag == "data" && parent == "supplement")) || (tag == "description" && parent == "trait") || (tag == "name" && (parent == "magicItem" || parent == "spell"))
         || (tag == "description" && parent == "material")
 }
 
@@ -138,12 +139,20 @@ const ORDER: &[(&str, &[&str])] = &[
     ("material", &["description", "cost", "consumed"]),
     ("duration", &["concentration", "value", "unit"]),
     ("higherLevels", &["cantripUpgrades", "slotUpgrades"]),
+    // supplements: the blocks after the chapters
+    ("supplement", &["cover", "chapter|credits|license", "treasure", "data", "reference", "chapterOrder"]),
+    ("credits", &["role|roleStyle", "credit|imageCredits|license|isbn|verbatimCredit", "copyright"]),
+    ("parcel", &["coins", "gems", "art", "magicItems", "other", "description"]),
+    ("coins", &["pp", "ep", "gp", "sp", "cp"]),
+    ("item", &["name", "description"]),
+    ("data", &["global", "chapter"]),
 ];
 
-/// Where `<tag>` goes among `<parent>`'s children: lower first; a list's items share one.
+/// Where `<tag>` goes among `<parent>`'s children: lower first; a list's items share one,
+/// and so do the tags of a group written "a|b" (any order among themselves).
 pub fn rank(parent: &str, tag: &str) -> usize {
     let Some((_, o)) = ORDER.iter().find(|(p, _)| *p == parent) else { return 0 };
-    o.iter().position(|t| *t == tag).or_else(|| o.iter().position(|t| *t == "*")).unwrap_or(o.len())
+    o.iter().position(|t| t.split('|').any(|x| x == tag)).or_else(|| o.iter().position(|t| *t == "*")).unwrap_or(o.len())
 }
 
 /// The inline ref tags that can point at an element with this tag, by its id.
@@ -257,10 +266,11 @@ impl El {
     pub fn opt_text(&self, tag: &str) -> String {
         self.kid(tag).map(|k| k.text.clone()).unwrap_or_default()
     }
-    /// Sets the text of an optional child: empty removes it (unless `keep`), otherwise
-    /// it's made if missing.
+    /// Sets the text of an optional child: empty removes it (unless `keep`, or it has a
+    /// template's formula instead), otherwise it's made if missing.
     pub fn set_opt_text(&mut self, tag: &str, v: &str, keep: bool) {
-        if v.trim().is_empty() && !keep {
+        let formula = self.kid(tag).is_some_and(|k| !k.get("formula").is_empty());
+        if v.trim().is_empty() && !keep && !formula {
             self.remove_kid(tag);
         } else {
             self.ensure(tag).text = v.to_string();
@@ -847,6 +857,8 @@ pub const INLINE: &[InlineSpec] = &[
     InlineSpec { tag: "saveRef", label: "Save ref", attrs: &[("ref", Field::Ref(&["save"]), true)], text: None },
     InlineSpec { tag: "spellRef", label: "Spell ref", attrs: &[("ref", Field::Ref(&["spell"]), true)], text: None },
     InlineSpec { tag: "speedRef", label: "Speed ref", attrs: &[("ref", Field::Ref(&["speed"]), true)], text: None },
+    InlineSpec { tag: "formulaRef", label: "Formula (templates)", attrs: &[("ref", Field::Ref(&["formula"]), true), ("noun", Field::Text, false), ("singular", Field::Text, false)], text: None },
+    InlineSpec { tag: "choiceRef", label: "Choice (templates)", attrs: &[("ref", Field::Ref(&["choice"]), true)], text: None },
     InlineSpec { tag: "speed", label: "Speed name", attrs: &[("name", Field::Pick(SPEEDS), true)], text: None },
     InlineSpec { tag: "rule", label: "Rules term", attrs: &[("name", Field::Text, false)], text: Some(Field::Text) },
     InlineSpec { tag: "spellName", label: "Spell name", attrs: &[("name", Field::Text, false)], text: Some(Field::Text) },

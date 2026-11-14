@@ -80,6 +80,11 @@ fn chip_label(env: &ProseEnv, t: &Tok) -> (String, bool) {
             "saveRef" => Some(own(&["save"])),
             "spellRef" => Some(own(&["spell"])),
             "speedRef" => Some(own(&["speed"]).map(|n| format!("{n} Speed"))),
+            "formulaRef" => Some(own(&["formula"]).map(|n| {
+                let noun = t.attr("noun");
+                if noun.is_empty() { format!("\u{2039}{n}\u{203a}") } else { format!("\u{2039}{n}\u{203a} {noun}") }
+            })),
+            "choiceRef" => Some(own(&["choice"]).map(|n| format!("\u{2039}{n}\u{203a}"))),
             "shortNounRef" => {
                 let n = env.noun.get_untracked();
                 // The prose writes its own "The"/"the" before it.
@@ -238,6 +243,8 @@ fn choices(env: &ProseEnv, lib: &[LibEntry], q: &str, hint: &str) -> Vec<Choice>
                 "save" => "saveRef",
                 "spell" => "spellRef",
                 "speed" => "speedRef",
+                "formula" => "formulaRef",
+                "choice" => "choiceRef",
                 _ => "actionRef",
             };
             let label = if tag == "speed" { format!("{name} Speed") } else { name.clone() };

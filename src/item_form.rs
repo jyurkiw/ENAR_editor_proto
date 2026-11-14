@@ -452,7 +452,29 @@ fn cell_input(c: Card, section: &'static str, row: Option<usize>, col: usize) ->
 }
 
 /// A section's rows as grid rows, with move and delete.
-fn grid_rows(c: Card, section: &'static str, count: Memo<usize>, cols: Memo<usize>, min: usize) -> impl IntoView {
+/// A body or footer cell's colspan and rowspan (empty: 1).
+fn span_inputs(c: Card, section: &'static str, row: usize, col: usize) -> impl IntoView {
+    let field = move |k: &'static str, label: &'static str| {
+        let get = move || c.m().kid(section).and_then(|s| s.all("tr").get(row).and_then(|r| r.all("td").get(col).map(|x| x.get(k).to_string()))).unwrap_or_default();
+        view! {
+            <label class="span-field" title=format!("{label}: how many {} this cell covers", if k == "colspan" { "columns" } else { "rows" })>
+                {label}
+                <input type="text" class="num" placeholder="1" prop:value=get on:input=move |ev| {
+                    let v = event_target_value(&ev);
+                    let v = if v.trim() == "1" { String::new() } else { v.trim().to_string() };
+                    c.change(|e| {
+                        if let Some(x) = e.kid_mut(section).and_then(|s| s.nth_mut("tr", row)).and_then(|r| r.nth_mut("td", col)) {
+                            x.set(k, &v);
+                        }
+                    })
+                }/>
+            </label>
+        }
+    };
+    view! { <div class="span-fields">{field("colspan", "Cols")}{field("rowspan", "Rows")}</div> }
+}
+
+fn grid_rows(c: Card, section: &'static str, count: Memo<usize>, cols: Memo<usize>, min: usize, spans: RwSignal<bool>) -> impl IntoView {
     move || {
         let n = count.get();
         (0..n).map(|i| {
@@ -466,7 +488,7 @@ fn grid_rows(c: Card, section: &'static str, count: Memo<usize>, cols: Memo<usiz
             });
             view! {
                 <tr>
-                    {move || (0..cols.get()).map(|j| view! { <td>{cell_input(c, section, Some(i), j)}</td> }).collect_view()}
+                    {move || (0..cols.get()).map(|j| view! { <td>{cell_input(c, section, Some(i), j)}{move || spans.get().then(|| span_inputs(c, section, i, j))}</td> }).collect_view()}
                     <td class="row-tools">
                         <button type="button" class="icon-btn" title="Move up" disabled={i == 0} on:click=move |_| swap(i, i - 1)>"↑"</button>
                         <button type="button" class="icon-btn" title="Move down" disabled={i + 1 >= n} on:click=move |_| swap(i, i + 1)>"↓"</button>
@@ -492,6 +514,8 @@ fn grid_rows(c: Card, section: &'static str, count: Memo<usize>, cols: Memo<usiz
 #[component]
 fn TableGrid(c: Card) -> impl IntoView {
     let cols = Memo::new(move |_| table_width(&c.m()));
+    // Span boxes show when asked for, or when the table already spans.
+    let spans = RwSignal::new(c.m().walk().iter().any(|e| e.tag == "td" && (!e.get("colspan").is_empty() || !e.get("rowspan").is_empty())));
     let has_header = Memo::new(move |_| c.m().kid("header").is_some());
     let body_n = Memo::new(move |_| c.m().kid("tableBody").map_or(0, |b| b.all("tr").len()));
     let foot_n = Memo::new(move |_| c.m().kid("footer").map_or(0, |b| b.all("tr").len()));
@@ -561,9 +585,9 @@ fn TableGrid(c: Card) -> impl IntoView {
                     </tr>
                 </thead>
             })}
-            <tbody>{grid_rows(c, "tableBody", body_n, cols, 1)}</tbody>
+            <tbody>{grid_rows(c, "tableBody", body_n, cols, 1, spans)}</tbody>
             {move || (foot_n.get() > 0).then(|| view! {
-                <tfoot>{grid_rows(c, "footer", foot_n, cols, 0)}</tfoot>
+                <tfoot>{grid_rows(c, "footer", foot_n, cols, 0, spans)}</tfoot>
             })}
         </table>
         <div class="add-part">
@@ -571,7 +595,8 @@ fn TableGrid(c: Card) -> impl IntoView {
             <button type="button" class="small" on:click=add_col>"+ Column"</button>
             <button type="button" class="small" on:click=move |_| add_row("footer")>"+ Footer row"</button>
             <button type="button" class="small" on:click=toggle_header>{move || if has_header.get() { "Remove header row" } else { "+ Header row" }}</button>
-            <span class="hint">"Cells take refs and tags (＋ or Ctrl+K); rowspan and colspan are kept as written."</span>
+            <label class="flag"><input type="checkbox" prop:checked=move || spans.get() on:change=move |ev| spans.set(event_target_checked(&ev))/>"Spans"</label>
+            <span class="hint">"Cells take refs and tags (＋ or Ctrl+K). Spans: how many columns or rows a cell covers; a row with a spanning cell has fewer cells."</span>
         </div>
     }
 }

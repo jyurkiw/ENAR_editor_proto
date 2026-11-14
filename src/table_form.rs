@@ -255,6 +255,21 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
             s.join(" · ")
         })
     };
+    // The span boxes: open while editing them, applied together.
+    let spans_open = RwSignal::new(false);
+    let col_d = RwSignal::new(String::new());
+    let row_d = RwSignal::new(String::new());
+    let open_spans = move || {
+        let c = cell.get_untracked().unwrap_or_default();
+        col_d.set(c.colspan.clone());
+        row_d.set(c.rowspan.clone());
+        spans_open.set(true);
+    };
+    let apply_spans = move || {
+        let norm = |v: String| if v.trim() == "1" { String::new() } else { v.trim().to_string() };
+        apply(tab, Change::Table { edit: TableEdit::Spans { at: at.get_value(), part, row, col, colspan: norm(col_d.get_untracked()), rowspan: norm(row_d.get_untracked()) } });
+        spans_open.set(false);
+    };
     // Whether the row has this cell: a memo, so typing doesn't re-render the field.
     let present = Memo::new(move |_| cell.with(|c| c.is_some()));
 
@@ -268,6 +283,9 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
             <div class="cell-label">
                 <span class="cell-name" title="This cell's column header">{label}</span>
                 {move || spans().filter(|s| !s.is_empty()).map(|s| view! { <span class="span-badge">{s}</span> })}
+                {move || (present.get() && !spans_open.get()).then(|| view! {
+                    <button class="small" title="How many columns or rows this cell covers" disabled=busy on:click=move |_| open_spans()>"Spans"</button>
+                })}
                 <span class="spacer"></span>
                 {move || failed().then(|| view! { <span class="state-badge bad">"refused"</span> })}
                 {move || (present.get() && dirty()).then(|| view! {
@@ -275,6 +293,15 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
                     <button class="small primary" disabled=busy on:click=move |_| do_apply()>"Apply"</button>
                 })}
             </div>
+            {move || spans_open.get().then(|| view! {
+                <div class="span-fields"
+                    on:keydown=move |ev: KeyboardEvent| { ev.stop_propagation(); if ev.key() == "Enter" { ev.prevent_default(); apply_spans() } else if ev.key() == "Escape" { spans_open.set(false) } }>
+                    <label class="span-field">"Cols"<input type="text" class="num" placeholder="1" prop:value=move || col_d.get() on:input=move |ev| col_d.set(event_target_value(&ev))/></label>
+                    <label class="span-field">"Rows"<input type="text" class="num" placeholder="1" prop:value=move || row_d.get() on:input=move |ev| row_d.set(event_target_value(&ev))/></label>
+                    <button class="small primary" disabled=busy on:click=move |_| apply_spans()>"Apply spans"</button>
+                    <button class="small" on:click=move |_| spans_open.set(false)>"Cancel"</button>
+                </div>
+            })}
             {move || if present.get() {
                 view! {
                     <ChipEditor value=Signal::derive(text) set=Callback::new(move |s: String| set(s)) placeholder="(empty)" single=true/>

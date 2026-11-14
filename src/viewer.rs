@@ -22,6 +22,8 @@ use crate::box_form::BoxForm;
 use crate::monster_form::MonsterForm;
 use crate::item_form::ItemPage;
 use crate::spell_form::SpellPage;
+use crate::license_form::LicensePage;
+use crate::supplement_parts::{AddParts, PartPage};
 use crate::list_form::ListForm;
 use shared::boxes::{self as boxes, BoxAt};
 use crate::table_form::TableForm;
@@ -53,6 +55,10 @@ enum FormKind {
     Item,
     /// Anything in a spell file: its one page.
     Spell,
+    /// A license file: its one page.
+    License,
+    /// A supplement's credits, license, treasure or data (by tag), or anything in one.
+    Part(String),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
@@ -63,17 +69,28 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     if d.kind == shared::DocKind::Spell {
         return Some(FormKind::Spell);
     }
+    if d.kind == shared::DocKind::License {
+        return Some(FormKind::License);
+    }
     if d.kind == shared::DocKind::Monsters {
         let key = d.key_of(idx);
-        // Anything in a stat block: its page (one form for all of it), unless it's a template.
+        // Anything in a stat block: its page (one form for all of it).
         if let Some(&c) = key.first() {
             if let Some(m) = d.nodes[0].children.get(c).map(|i| &d.nodes[*i]) {
-                if m.tag == "monster" && !shared::monster::is_template(&d.source, m) {
+                if m.tag == "monster" {
                     return Some(FormKind::Monster(vec![c], "monster".into()));
                 }
             }
         }
         return Some(FormKind::Monster(key, n.tag.clone()));
+    }
+    // A supplement's credits, license, treasure or data, or anything in one: its page.
+    if let Some(&c) = d.key_of(idx).first() {
+        if let Some(top) = d.nodes[0].children.get(c).map(|i| &d.nodes[*i]) {
+            if crate::supplement_parts::PARTS.iter().any(|(t, _)| *t == top.tag) {
+                return Some(FormKind::Part(top.tag.clone()));
+            }
+        }
     }
     // A table, or anything inside one: the table editor.
     let mut cur = Some(idx);
@@ -165,6 +182,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
         shared::DocKind::Monsters => shared::prose::Palette::StatBlock,
         shared::DocKind::MagicItem => shared::prose::Palette::MagicItem,
         shared::DocKind::Spell => shared::prose::Palette::Spell,
+        shared::DocKind::License => shared::prose::Palette::License,
     };
     crate::prose_editor::provide_env(tab, palette, None);
     let selected = tab.selected;
@@ -235,7 +253,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | Some(FormKind::Spell) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | None => {}
             Some(FormKind::Monster(path, tag)) => {
                 if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
                     let p2 = path.clone();
@@ -297,6 +315,9 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 </div>
             </Show>
             <Show when=move || is_supplement() && selected.get() == 0>
+                <AddParts tab/>
+            </Show>
+            <Show when=move || is_supplement() && selected.get() == 0>
                 <div class="notice info">
                     {move || format!("{} chapter(s).", chapter::chapter_nodes(&tab.doc().nodes).len())}
                     <button on:click=add_chapter disabled=move || tab.applying.get()>"Add chapter…"</button>
@@ -314,6 +335,8 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Monster(path, tag)), Mode::Form) => view! { <MonsterForm tab path tag/> }.into_any(),
                     (Some(FormKind::Item), Mode::Form) => view! { <ItemPage tab/> }.into_any(),
                     (Some(FormKind::Spell), Mode::Form) => view! { <SpellPage tab/> }.into_any(),
+                    (Some(FormKind::License), Mode::Form) => view! { <LicensePage tab/> }.into_any(),
+                    (Some(FormKind::Part(tag)), Mode::Form) => view! { <PartPage tab tag/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

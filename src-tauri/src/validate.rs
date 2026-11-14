@@ -10,7 +10,7 @@ use std::process::Command;
 use serde::Deserialize;
 use shared::{
     AppError, ApplyResult, DocKind, OpenedDoc, Problem, ProjectInfo, Validation, LEGACY_SUPPLEMENT_SCHEMA,
-    MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SPELL_SCHEMA, SUPPLEMENT_SCHEMA,
+    LICENSE_SCHEMA, MAGIC_ITEM_SCHEMA, MONSTER_SCHEMA, SPELL_SCHEMA, SUPPLEMENT_SCHEMA,
 };
 
 use crate::project::path_str;
@@ -216,10 +216,10 @@ fn check_text(
     let Some(kind) = DocKind::of_root(&parsed.root_tag) else {
         let schema = parsed.schema_location.as_deref().map(file_name).unwrap_or("no schema");
         return Err(AppError::with_details(
-            format!("{name} isn't a supplement, monster, magic item or spell file."),
+            format!("{name} isn't a supplement, monster, magic item, spell or license file."),
             vec![
                 format!("Its root element is <{}> and it names {schema}.", parsed.root_tag),
-                format!("Only files using {SUPPLEMENT_SCHEMA}, {MONSTER_SCHEMA}, {MAGIC_ITEM_SCHEMA} or {SPELL_SCHEMA} can be opened."),
+                format!("Only files using {SUPPLEMENT_SCHEMA}, {MONSTER_SCHEMA}, {MAGIC_ITEM_SCHEMA}, {SPELL_SCHEMA} or {LICENSE_SCHEMA} can be opened."),
             ],
         ));
     };
@@ -452,10 +452,16 @@ mod real {
         let spell = open_file(&format!("{REPO}/adventures/compiler-test/thistlewoods-hearthward.xml"), &p, &v).unwrap();
         assert_eq!(spell.kind, DocKind::Spell);
         assert!(spell.warnings.is_empty(), "{:?}", spell.warnings);
-        // A license file has no editor.
-        let err = open_file(&format!("{REPO}/schemas/dmsguild-license.xml"), &p, &v).unwrap_err();
+        // A license file opens; a file of no known kind doesn't.
+        let lic = open_file(&format!("{REPO}/schemas/dmsguild-license.xml"), &p, &v).unwrap();
+        assert_eq!(lic.kind, DocKind::License);
+        assert!(matches!(lic.validation, Validation::Valid { .. }), "{:?}", lic.validation);
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures/compiler-test")).unwrap();
+        let odd = t.path().join("odd.xml");
+        std::fs::write(&odd, "<?xml version=\"1.0\"?>\n<recipe/>\n").unwrap();
+        let err = open_file(&path_str(&odd), &p, &v).unwrap_err();
         println!("{}\n  {}", err.message, err.details.join("\n  "));
-        assert!(err.message.contains("isn't a supplement, monster, magic item or spell file"));
+        assert!(err.message.contains("isn't a supplement, monster, magic item, spell or license file"));
         // Every shared monster file opens and validates.
         let dir = format!("{REPO}/shared/internal/monsters");
         let mut n = 0;
@@ -569,7 +575,7 @@ mod real {
             let Ok(p) = xmldoc::parse(&src) else { continue };
             for (c, mi) in p.nodes[0].children.iter().enumerate() {
                 let n = &p.nodes[*mi];
-                if n.tag != "monster" || shared::monster::is_template(&src, n) {
+                if n.tag != "monster" {
                     continue;
                 }
                 let m = sb::read(&src, c).unwrap();
@@ -581,7 +587,7 @@ mod real {
                 let mut cards = vec![scoped(&m, &["name"]), scoped(&m, &["brief", "habitats", "lairRef"])];
                 for k in &m.kids {
                     match k.tag.as_str() {
-                        "heading" | "statBlock" | "attributes" | "quoteBox" | "image" | "description" | "distinctionTable" => cards.push((k.clone(), None)),
+                        "heading" | "statBlock" | "attributes" | "quoteBox" | "image" | "description" | "distinctionTable" | "formulas" => cards.push((k.clone(), None)),
                         "traits" | "actions" | "bonusActions" | "reactions" | "legendaryActions" => {
                             cards.push(scoped(k, &["multiattack"]));
                             cards.push(scoped(k, &["uses"]));
@@ -607,6 +613,153 @@ mod real {
         println!("{checked} stat blocks checked");
         assert!(checked > 300);
         assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// Every supplement's credits, license, treasure (each parcel) and data, and every
+    /// license file: applied unchanged, each writes nothing.
+    #[test]
+    #[ignore]
+    fn supplement_parts_unchanged_are_no_ops() {
+        use shared::statblock::{self as sb, StatEdit, ROOT};
+        fn xmls(dir: &Path, out: &mut Vec<PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if name.starts_with('.') || name == "node_modules" || name == "target" {
+                    continue;
+                }
+                if p.is_dir() {
+                    xmls(&p, out);
+                } else if name.ends_with(".xml") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        xmls(Path::new(REPO), &mut files);
+        let (mut checked, mut failures) = (0, Vec::new());
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            if !src.contains("<supplement") && !src.contains("<license") {
+                continue;
+            }
+            let Some(root) = sb::read(&src, ROOT) else { continue };
+            let mut edits = Vec::new();
+            match root.tag.as_str() {
+                "license" => edits.push(StatEdit::Update { child: ROOT, el: root.clone(), scope: None }),
+                "supplement" => {
+                    for k in root.kids.iter().filter(|k| ["credits", "license", "treasure", "data"].contains(&k.tag.as_str())) {
+                        edits.push(StatEdit::Update { child: ROOT, el: k.clone(), scope: None });
+                        if k.tag == "treasure" {
+                            edits.extend(k.all("parcel").into_iter().map(|p| StatEdit::Update { child: ROOT, el: p.clone(), scope: None }));
+                        }
+                    }
+                }
+                _ => continue,
+            }
+            for e in edits {
+                checked += 1;
+                let tag = match &e {
+                    StatEdit::Update { el, .. } => el.tag.clone(),
+                    _ => String::new(),
+                };
+                match sb::plan(&src, &e) {
+                    Ok(out) if out == src => {}
+                    Ok(out) => {
+                        let at = src.bytes().zip(out.bytes()).position(|(a, b)| a != b).unwrap_or(0);
+                        failures.push(format!("{}: <{tag}> changed near: {:?}", f.display(), &src[at.saturating_sub(40)..(at + 40).min(src.len())]));
+                    }
+                    Err(e) => failures.push(format!("{}: <{tag}>: {e}", f.display())),
+                }
+            }
+        }
+        println!("{checked} parts checked");
+        assert!(checked > 10, "only {checked}");
+        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// A copy of the DMs Guild license edited through its page; a copy of the test
+    /// adventure with its treasure deleted and added afresh, and its data and credits
+    /// edited, each against the schemas.
+    #[test]
+    #[ignore]
+    fn license_and_supplement_parts_round_trip() {
+        use shared::statblock::{self as sb, El, StatEdit, ROOT};
+        let (p, v) = setup();
+        let stat = |e: StatEdit| shared::Change::Stat { edit: e };
+        let run = |path: &str, expected: &str, change: shared::Change| match apply_edit(path, expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        // Copies beside their originals (relative paths keep working), removed after.
+        struct Gone(PathBuf);
+        impl Drop for Gone {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        // The license: a version, and a paragraph with both blanks.
+        let lic = PathBuf::from(format!("{REPO}/schemas/zz-test-license.xml"));
+        let _g1 = Gone(lic.clone());
+        std::fs::copy(format!("{REPO}/schemas/dmsguild-license.xml"), &lic).unwrap();
+        let path = path_str(&lic);
+        let doc = open_file(&path, &p, &v).unwrap();
+        assert_eq!(doc.kind, DocKind::License);
+        let mut l = sb::read(&doc.source, ROOT).unwrap();
+        l.set("version", "2.1");
+        l.kids.push(El::new("p").with_text("Copyright <date/> <ownedBy/>. All rights reserved."));
+        let doc = run(&path, &doc.source, stat(StatEdit::Update { child: ROOT, el: l, scope: None }));
+        assert!(doc.source.contains("version=\"2.1\""), "{}", doc.source);
+        assert!(doc.source.contains("Copyright <date/> <ownedBy/>."));
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+
+        // A new supplement: each part added at its root, where the schema puts it.
+        let t = tempfile::tempdir_in(format!("{REPO}/adventures")).unwrap();
+        let req = shared::NewSupplement { parent: path_str(t.path()), folder: "parts-test".into(), kind: "adventure".into(), title: "Parts".into() };
+        let file = crate::fsops::create_supplement(&req, &path_str(t.path()), &p.schemas_dir).unwrap();
+        let mut doc = open_file(&file, &p, &v).unwrap();
+        let parts = [
+            El::new("data").with_kid(El::new("global").with_kid(El::new("value").with("name", "toll").with("value", "5"))),
+            El::new("credits").with_kid(El::new("credit").with("name", "A. Writer").with("role", "Author")).with_kid(El::new("copyright").with("year", "2026")),
+            El::new("treasure").with_kid(
+                El::new("parcel")
+                    .with("number", "1")
+                    .with_kid(El::new("coins").with_kid(El::new("gp").with("count", "50")))
+                    .with_kid(El::new("gems").with_kid(El::new("gem").with("cp", "5000").with_text("a moonstone")))
+                    .with_kid(El::new("description").with_text("In the toll-keeper's chest.")),
+            ),
+            El::new("license").with("file", "dmsguild-license.xml").with("date", "2026").with("ownedBy", "Someone"),
+        ];
+        for el in parts {
+            let tag = el.tag.clone();
+            doc = run(&file, &doc.source, stat(StatEdit::Insert { child: ROOT, parent: vec![], parent_tag: "supplement".into(), el, after: None }));
+            assert!(doc.source.contains(&format!("<{tag}")), "{tag}");
+            assert!(matches!(doc.validation, Validation::Valid { .. }), "<{tag}>: {:?}", doc.validation);
+        }
+        // Chapters, then the credits and license, then treasure, then data.
+        let at = |t: &str| doc.source.find(t).unwrap_or_else(|| panic!("{t}"));
+        assert!(at("<credits>") < at("<treasure>") && at("<license") < at("<treasure>") && at("<treasure>") < at("<data>"), "{}", doc.source);
+
+        // The adventure.
+        let sup = PathBuf::from(format!("{REPO}/adventures/compiler-test/zz-parts-test.xml"));
+        let _g2 = Gone(sup.clone());
+        std::fs::copy(format!("{REPO}/adventures/compiler-test/adventure.xml"), &sup).unwrap();
+        let path = path_str(&sup);
+        let doc = open_file(&path, &p, &v).unwrap();
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        let root = sb::read(&doc.source, ROOT).unwrap();
+        let mut data = root.kid("data").unwrap().clone();
+        data.kid_mut("global").unwrap().kids.push(El::new("value").with("name", "toll").with("value", "5"));
+        let doc = run(&path, &doc.source, stat(StatEdit::Update { child: ROOT, el: data, scope: None }));
+        assert!(doc.source.contains("<value name=\"toll\" value=\"5\"/>"));
+        let root = sb::read(&doc.source, ROOT).unwrap();
+        let mut cr = root.kid("credits").unwrap().clone();
+        let at = cr.kids.iter().position(|k| k.tag == "credit").unwrap();
+        cr.kids.insert(at, El::new("credit").with("name", "New Person").with("role", "Editor"));
+        let doc = run(&path, &doc.source, stat(StatEdit::Update { child: ROOT, el: cr, scope: None }));
+        assert!(doc.source.contains("<credit name=\"New Person\" role=\"Editor\"/>"));
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
     }
 
     /// Every magic item in the data: each card applied unchanged writes nothing.

@@ -235,13 +235,7 @@ pub fn MonsterForm(tab: DocTab, path: Vec<usize>, tag: String) -> impl IntoView 
         let t = d.nodes.first()?.children.get(c).map(|i| d.nodes[*i].tag.clone())?;
         PARTS.contains(&t.as_str()).then_some((c, t))
     });
-    let stat = (path.len() == 1 && tag == "monster")
-        .then(|| {
-            let d = tab.doc_untracked();
-            let m = &d.nodes[*d.nodes.first()?.children.get(path[0])?];
-            (!monster::is_template(&d.source, m)).then_some(path[0])
-        })
-        .flatten();
+    let stat = (path.len() == 1 && tag == "monster").then(|| path[0]);
     let page = if let Some(c) = stat {
         Page::Stat(c)
     } else if path.is_empty() {

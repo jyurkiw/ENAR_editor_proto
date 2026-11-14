@@ -76,6 +76,8 @@ pub enum TableEdit {
     SwapHeaders { at: TableAt, col: usize },
     /// Replace a cell's contents (raw XML).
     SetCell { at: TableAt, part: Part, row: usize, col: usize, text: String },
+    /// A cell's colspan and rowspan (empty removes either).
+    Spans { at: TableAt, part: Part, row: usize, col: usize, colspan: String, rowspan: String },
     /// Add an empty cell at the end of a row (one short of the headers).
     AddCell { at: TableAt, part: Part, row: usize },
     /// A new row after `after`, or first when None: one empty cell per header.
@@ -94,6 +96,7 @@ impl TableEdit {
             | TableEdit::DeleteHeader { at, .. }
             | TableEdit::SwapHeaders { at, .. }
             | TableEdit::SetCell { at, .. }
+            | TableEdit::Spans { at, .. }
             | TableEdit::AddCell { at, .. }
             | TableEdit::AddRow { at, .. }
             | TableEdit::DeleteRow { at, .. }
@@ -296,6 +299,24 @@ pub fn plan(source: &str, e: &TableEdit) -> Result<String, String> {
                 .ok_or("that cell isn't there any more; reopen the file")?;
             vec![set_inner(source, td, text).ok_or("bad <td>")?]
         }
+        TableEdit::Spans { part, row, col, colspan, rowspan, .. } => {
+            let td = row_of(&nodes, t, *part, *row)?
+                .children
+                .iter()
+                .map(|c| &nodes[*c])
+                .filter(|c| c.tag == "td")
+                .nth(*col)
+                .ok_or("that cell isn't there any more; reopen the file")?;
+            let some = |v: &String| (!v.trim().is_empty()).then(|| v.trim().to_string());
+            let mut out: Vec<Splice> = edit::set_attr(source, td, "colspan", some(colspan).as_deref()).into_iter().collect();
+            // Both attributes on one start tag: the second against the first's result.
+            let cur = edit::apply(source, &out)?;
+            let ns = crate::xml::parse(&cur).map_err(|e| e.message)?.nodes;
+            let t2 = &ns[find(&cur, &ns, e.at()).ok_or("lost the table")?];
+            let td2 = row_of(&ns, t2, *part, *row)?.children.iter().map(|c| &ns[*c]).filter(|c| c.tag == "td").nth(*col).ok_or("lost the cell")?;
+            out = edit::set_attr(&cur, td2, "rowspan", some(rowspan).as_deref()).into_iter().collect();
+            return edit::apply(&cur, &out);
+        }
         TableEdit::AddCell { part, row, .. } => {
             let r = row_of(&nodes, t, *part, *row)?;
             let n = kids(&nodes, r, "td").count();
@@ -433,6 +454,17 @@ mod tests {
         assert!(out.contains(r#"<tableLink id="ring"/>"#));
         let out = plan(SRC, &TableEdit::Info { at: at("bare"), id: "bare".into(), title: "Now titled".into() }).unwrap();
         assert!(out.contains("<table id=\"bare\">\n            <title>Now titled</title>\n            <tableBody>"), "{out}");
+    }
+
+    #[test]
+    fn spans_set_and_clear() {
+        let e = |c: &str, r: &str| TableEdit::Spans { at: at("t"), part: Part::Body, row: 1, col: 0, colspan: c.into(), rowspan: r.into() };
+        let out = plan(SRC, &e("2", "3")).unwrap();
+        let v = view(&out, "t");
+        assert_eq!((v.body[1].cells[0].colspan.as_str(), v.body[1].cells[0].rowspan.as_str()), ("2", "3"));
+        assert_eq!(v.body[1].cells[0].text, "10");
+        let back = plan(&out, &e("", " ")).unwrap();
+        assert_eq!(back, SRC);
     }
 
     #[test]

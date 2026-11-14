@@ -205,6 +205,8 @@ pub fn label(t: &Tok) -> String {
         "speed" => format!("{} Speed", cap(a("name"))),
         "shortNounRef" => "creature".into(),
         "spellLevelRef" => "the spell's level".into(),
+        "date" => "\u{2039}date\u{203a}".into(),
+        "ownedBy" => "\u{2039}owner\u{203a}".into(),
         "formulaRef" => format!("formula {}", a("ref")),
         "choiceRef" => format!("choice {}", a("ref")),
         "coreBookChapterRef" => format!("Chapter {}: {txt}", a("num")),
@@ -237,6 +239,8 @@ pub enum Palette {
     MagicItem,
     Spell,
     Supplement,
+    /// A license file's notice: text with the supplement's fill-ins.
+    License,
 }
 
 impl Palette {
@@ -246,6 +250,7 @@ impl Palette {
             Palette::StatBlock => crate::statblock::INLINE,
             Palette::MagicItem => crate::item::INLINE,
             Palette::Spell => crate::spell::INLINE,
+            Palette::License => LICENSE,
             Palette::Supplement => SUPPLEMENT,
         }
     }
@@ -289,6 +294,12 @@ pub const REFS: &[InlineSpec] = &[
     InlineSpec { tag: "chapterRef", label: "Chapter ref", attrs: &[("name", Field::Ref(&["chapter"]), true), EMPH], text: None },
     InlineSpec { tag: "figureRef", label: "Figure ref", attrs: &[("ref", Field::Ref(&["figure"]), true), EMPH], text: None },
     InlineSpec { tag: "monster", label: "Inline monster", attrs: &[("ref", Field::Ref(&["monster"]), false), ("name", Field::Text, false), ("cr", Field::Text, false), ("src", Field::Text, false), ("display", Field::Text, false), EMPH], text: None },
+];
+
+/// A license notice's blanks, filled from the supplement's `<license date ownedBy>`.
+pub const LICENSE: &[InlineSpec] = &[
+    InlineSpec { tag: "date", label: "The date (the supplement's @date)", attrs: &[], text: None },
+    InlineSpec { tag: "ownedBy", label: "The owner (the supplement's @ownedBy)", attrs: &[], text: None },
 ];
 
 /// A supplement paragraph's tags besides its entry refs.

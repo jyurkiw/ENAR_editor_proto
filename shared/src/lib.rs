@@ -30,6 +30,8 @@ pub const MONSTER_SCHEMA: &str = "monster-template-schema.xsd";
 pub const MAGIC_ITEM_SCHEMA: &str = "magic-item-template-schema.xsd";
 /// The schema spell files use.
 pub const SPELL_SCHEMA: &str = "spell-template-schema.xsd";
+/// The schema license files use.
+pub const LICENSE_SCHEMA: &str = "license-template-schema.xsd";
 
 /// What kind of file a tab holds: its root element and schema.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +45,8 @@ pub enum DocKind {
     MagicItem,
     /// `<spell>`: one spell.
     Spell,
+    /// `<license>`: one license's notice text (schemas/dmsguild-license.xml).
+    License,
 }
 
 impl DocKind {
@@ -52,6 +56,7 @@ impl DocKind {
             "monsters" => Some(DocKind::Monsters),
             "magicItem" => Some(DocKind::MagicItem),
             "spell" => Some(DocKind::Spell),
+            "license" => Some(DocKind::License),
             _ => None,
         }
     }
@@ -61,6 +66,7 @@ impl DocKind {
             DocKind::Monsters => MONSTER_SCHEMA,
             DocKind::MagicItem => MAGIC_ITEM_SCHEMA,
             DocKind::Spell => SPELL_SCHEMA,
+            DocKind::License => LICENSE_SCHEMA,
         }
     }
     pub fn root(self) -> &'static str {
@@ -69,6 +75,7 @@ impl DocKind {
             DocKind::Monsters => "monsters",
             DocKind::MagicItem => "magicItem",
             DocKind::Spell => "spell",
+            DocKind::License => "license",
         }
     }
     /// "supplement", "monster file".
@@ -78,6 +85,7 @@ impl DocKind {
             DocKind::Monsters => "monster file",
             DocKind::MagicItem => "magic item file",
             DocKind::Spell => "spell file",
+            DocKind::License => "license file",
         }
     }
 }

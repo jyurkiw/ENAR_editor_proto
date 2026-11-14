@@ -388,6 +388,10 @@ button.small { font-size: 11px; padding: 1px 8px; }
 .cell-label { display: flex; align-items: center; gap: 6px; min-height: 22px; }
 .cell-name { font-size: 11px; font-weight: 600; color: var(--t-value); text-transform: uppercase; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell.extra .cell-name { color: var(--bad); }
+.span-fields { display: flex; gap: 6px; align-items: center; margin: 2px 0 4px; flex-wrap: wrap; }
+.span-field { display: inline-flex; gap: 3px; align-items: center; font-size: 11px; color: var(--muted); }
+.span-field input.num { width: 3em; }
+.tpl-field .field-label { color: var(--accent, inherit); }
 .span-badge { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
 .cell-text {
   field-sizing: content; min-height: 2.2em; resize: vertical; box-sizing: border-box; width: 100%;

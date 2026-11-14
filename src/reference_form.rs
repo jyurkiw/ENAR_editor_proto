@@ -13,6 +13,7 @@ use shared::values::{is_length, parse_length};
 use shared::Change;
 use wasm_bindgen::JsCast;
 
+use crate::prose_editor::ChipEditor;
 use crate::api;
 use crate::apply::{apply_from, ref_key};
 use crate::state::DocTab;
@@ -318,29 +319,12 @@ fn fields(card: Card, tag: &str, monster_ids: Memo<Vec<String>>, doc_dir: Stored
                 <Field card attr="id" label="Id" required=true hint="What dataRef points at"/>
                 <Field card attr="value" label="Value" hint="Printed by <dataRef value=\"value\">"/>
             </div>
-            {move || {
-                let m = card.model();
-                if m.body_markup {
-                    view! {
-                        <label class="field">
-                            <span class="field-label">"Text"</span>
-                            <textarea disabled rows=3 prop:value=m.body.clone()></textarea>
-                            <span class="hint">"This text holds markup, so edit it in the source for now."</span>
-                        </label>
-                    }.into_any()
-                } else {
-                    view! {
-                        <label class="field">
-                            <span class="field-label">"Text"</span>
-                            <textarea rows=3 prop:value=m.body.clone() on:input=move |ev| {
-                                let v = event_target_value(&ev);
-                                card.update(|m| m.body = v);
-                            }></textarea>
-                            <span class="hint">"Printed by <dataRef value=\"body\">; plain text renders best"</span>
-                        </label>
-                    }.into_any()
-                }
-            }}
+            <div class="field">
+                <span class="field-label">"Text"</span>
+                <ChipEditor value=Signal::derive(move || card.model().body) set=Callback::new(move |v: String| card.update(|m| m.body = v))
+                    placeholder="(none)"/>
+                <span class="hint">"Printed by <dataRef value=\"body\">; refs and tags show as chips"</span>
+            </div>
         }
         .into_any(),
         _ => view! { <p class="hint">"No form for this entry."</p> }.into_any(),

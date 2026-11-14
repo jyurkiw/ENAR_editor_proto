@@ -92,7 +92,18 @@ impl RefEntry {
                 if !v.is_empty() {
                     format!("= {v}")
                 } else {
-                    edit::snippet(&self.body.split_whitespace().collect::<Vec<_>>().join(" "), 50)
+                    // The body is XML: its text, without the tags.
+                    let mut plain = String::new();
+                    let mut inside = false;
+                    for ch in self.body.chars() {
+                        match ch {
+                            '<' => inside = true,
+                            '>' => inside = false,
+                            _ if !inside => plain.push(ch),
+                            _ => {}
+                        }
+                    }
+                    edit::snippet(&edit::unescape(&plain).split_whitespace().collect::<Vec<_>>().join(" "), 50)
                 }
             }
             _ => String::new(),
@@ -142,10 +153,10 @@ fn entry_nodes(nodes: &[StructNode]) -> Vec<usize> {
 
 fn read_entry(source: &str, nodes: &[StructNode], n: &StructNode) -> RefEntry {
     let attrs = edit::start_tag(source, n.start).map(|t| t.attrs.into_iter().map(|a| (a.name, a.value)).collect()).unwrap_or_default();
+    // A data entry's body is its XML (text and inline tags), edited in a chip box.
     let (body, body_markup) = if n.tag == "data" {
         match edit::inner_span(source, n) {
-            Some((a, b)) if source[a..b].contains('<') => (edit::plain_text(source, n), true),
-            Some(_) => (edit::text_of(source, n), false),
+            Some((a, b)) => (crate::block::p_text(source, n), source[a..b].contains('<')),
             None => (String::new(), false),
         }
     } else {
@@ -306,7 +317,7 @@ fn chooses_xml(chooses: &[(String, String)]) -> Vec<String> {
 fn entry_xml(e: &RefEntry, unit: &str) -> String {
     let attrs = attrs_xml(&e.attrs);
     if e.tag == "data" && !e.body.is_empty() {
-        return format!("<data{attrs}>{}</data>", edit::escape_text(&e.body));
+        return format!("<data{attrs}>{}</data>", e.body.trim());
     }
     if e.tag == "monster" && !e.chooses.is_empty() {
         let kids: Vec<String> = chooses_xml(&e.chooses).into_iter().map(|c| format!("{unit}{c}")).collect();
@@ -337,13 +348,13 @@ fn content_splices(source: &str, nodes: &[StructNode], ni: usize, new: &RefEntry
     let old = read_entry(source, nodes, n);
     let mut out = Vec::new();
     // Data body.
-    if n.tag == "data" && !old.body_markup && new.body != old.body {
+    if n.tag == "data" && new.body.trim() != old.body.trim() {
         let tag = edit::start_tag(source, n.start).ok_or("bad <data> tag")?;
-        if new.body.is_empty() && !tag.self_closing {
+        if new.body.trim().is_empty() && !tag.self_closing {
             let (a, b) = edit::inner_span(source, n).ok_or("bad <data>")?;
             out.push(Splice { start: a, end: b, text: String::new() });
-        } else if !new.body.is_empty() {
-            out.extend(edit::set_text(source, n, &new.body));
+        } else if !new.body.trim().is_empty() {
+            out.extend(crate::block::set_inner(source, n, new.body.trim()));
         }
     }
     // Monster picks: the children are rewritten when they change.
@@ -509,7 +520,8 @@ mod tests {
         assert_eq!(es[1].chooses, vec![("warmth".to_string(), "fire".to_string())]);
         assert_eq!(es[4].label(), "Art (art.png)");
         assert_eq!(es[5].label(), "= 5 gp");
-        assert_eq!(es[6].body, "Beware & flee.");
+        // The body is XML: entities as written.
+        assert_eq!(es[6].body, "Beware &amp; flee.");
     }
 
     #[test]
@@ -563,9 +575,9 @@ mod tests {
         assert!(out.contains(r#"<monster id="spirit" file="spirit.xml" monster="hearth" summonerRef="gob" spellLevel="2"/>"#), "{out}");
 
         let mut d = entry(SRC, "data", "toll");
-        d.body = "Five <gold>".into();
+        d.body = "Five <b>gold</b> &amp; more".into();
         let out = plan(SRC, &RefEdit::Update { tag: "data".into(), id: "toll".into(), entry: d }).unwrap();
-        assert!(out.contains(r#"<data id="toll" value="5 gp">Five &lt;gold&gt;</data>"#));
+        assert!(out.contains(r#"<data id="toll" value="5 gp">Five <b>gold</b> &amp; more</data>"#), "{out}");
     }
 
     #[test]

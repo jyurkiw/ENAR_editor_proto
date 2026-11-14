@@ -24,6 +24,7 @@ use crate::apply::apply;
 use crate::family_form::{bar, confirm, json, Draft};
 use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
+use crate::template_form as tf;
 
 pub(crate) fn edit(tab: DocTab, e: StatEdit) {
     apply(tab, Change::Stat { edit: e });
@@ -236,7 +237,7 @@ fn ref_ctx(mon: Memo<Option<El>>) -> RefCtx {
                 .map(|m| {
                     m.walk()
                         .into_iter()
-                        .filter(|e| ["action", "attack", "save", "spellcasting", "spell", "speed"].contains(&e.tag.as_str()) && !e.get("id").is_empty())
+                        .filter(|e| ["action", "attack", "save", "spellcasting", "spell", "speed", "formula", "choice"].contains(&e.tag.as_str()) && !e.get("id").is_empty())
                         .map(|e| {
                             let name = if e.get("name").is_empty() { e.get("id") } else { e.get("name") };
                             (e.tag.clone(), e.get("id").to_string(), name.to_string())
@@ -383,6 +384,12 @@ pub(crate) fn Section(#[prop(into)] title: String, #[prop(optional, into)] hint:
 
 const IDENTITY: &[&str] = &["name"];
 
+/// A template's challenge ratings: "none" too (it has no XP of its own).
+const CRS_TPL: &[&str] = &[
+    "none", "0", "1/8", "1/4", "1/2", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+    "21", "22", "23", "24", "25", "26", "27", "28", "29", "30",
+];
+
 #[component]
 fn IdentityCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoView {
     let el = Memo::new(move |_| mon.with(|m| m.as_ref().map(|m| scoped(m, IDENTITY))));
@@ -394,6 +401,10 @@ fn IdentityCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoVi
                 {kid_text(c, r, "name", true, "Name", "Gnoll Pack Lord", "<name>: the stat block's heading")}
                 {text_in(c, r, "id", "Id", "gnoll-pack-lord", "Unique in the file. <reference><monster monster=…> in a supplement names it: renaming it here doesn't rename those.")}
                 {text_in(c, r, "src", "Source", "(original)", "src: the source book, e.g. 5.2.1 SRD. Empty for an original monster.")}
+            </div>
+            <div class="field-row">
+                {flag_in(c, r, "template", false, "Template")}
+                <span class="hint">"A summoned creature's stat block whose numbers come from the summoner: formulas and choices (see monsters/TEMPLATES.md)."</span>
             </div>
             {card_bar(c)}
         </div>
@@ -674,6 +685,7 @@ fn speed_row(c: Card, l: Loc, _i: usize) -> AnyView {
             {text_in(c, l, "id", "Id", "ground", "for <speedRef>")}
             {text_in(c, l, "note", "Note", "(none)", "")}
             {flag_in(c, l, "hover", false, "Hover")}
+            {tf::formula(c, l, "valueFormula", "Feet formula")}
         </div>
     }
     .into_any()
@@ -704,6 +716,13 @@ fn HeadingCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoVie
                 {kid_text(c, r, "proficiencyBonus", true, "Proficiency Bonus", "2", "")}
             </div>
             <div class="field-row">
+                {tf::kid_formula(c, "armorClass", "AC formula")}
+                {tf::kid_formula(c, "proficiencyBonus", "PB formula")}
+                {tf::formula(c, ini, "formula", "Initiative formula")}
+                {tf::kid_formula(c, "hitDice", "Hit dice formula")}
+                {tf::kid_formula(c, "hitPoints", "HP formula")}
+            </div>
+            <div class="field-row">
                 {text_in(c, ini, "mod", "Initiative mod", "(none)", "Added to Dex mod + PB")}
                 <div class="field flags">
                     {flag_in(c, ini, "expertise", false, "Expertise (PB twice)")}
@@ -726,7 +745,8 @@ fn AbilitiesCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoV
     view! {
         <div class="table-card" class:dirty=move || c.d.dirty() class:failed=move || c.d.failed() on:keydown=keys(c)>
             <table class="sb-stats">
-                <thead><tr><th></th><th>"Score"</th><th>"Save proficiency"</th><th>"Expertise"</th></tr></thead>
+                <thead><tr><th></th><th>"Score"</th><th>"Save proficiency"</th><th>"Expertise"</th>
+                    {move || tf::is_template().then(|| view! { <th>"Score formula"</th><th>"Explained by"</th> })}</tr></thead>
                 <tbody>
                     {(0..6).map(|i| {
                         let l = Loc::ROOT.at("stat", i);
@@ -737,6 +757,7 @@ fn AbilitiesCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoV
                                     on:input=move |ev| { let v = event_target_value(&ev); c.at(l, |s| s.set("value", &v)) }/></td>
                                 <td>{flag_in(c, l, "saveProficiency", false, "")}</td>
                                 <td>{flag_in(c, l, "expertise", false, "")}</td>
+                                {move || tf::is_template().then(|| view! { <td>{tf::formula(c, l, "valueFormula", "")}</td><td>{tf::trait_ref(c, l)}</td> })}
                             </tr>
                         }
                     }).collect_view()}
@@ -789,12 +810,12 @@ fn AttributesCard(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl Into
         <div class="table-card" class:dirty=move || c.d.dirty() class:failed=move || c.d.failed() on:keydown=keys(c)>
             <Rows c loc=r container="challengeRatings" tag="challengeRating" title="Challenge rating" hint="A second one with a note: \u{201c}11 in lair\u{201d}." min=1
                 make=|_| El::new("challengeRating").with("value", "1")
-                row=|c, l, _| view! { <div class="field-row">{pick_in(c, l, "value", sb::CRS, None, "CR", "")}{text_in(c, l, "note", "Note", "(base)", "")}</div> }.into_any()/>
+                row=|c, l, _| view! { <div class="field-row">{move || pick_in(c, l, "value", if tf::is_template() { CRS_TPL } else { sb::CRS }, None, "CR", "")}{text_in(c, l, "note", "Note", "(base)", "")}</div> }.into_any()/>
             <Rows c loc=r container="skills" tag="skill" title="Skills"
                 make=|_| El::new("skill").with("name", "perception").with("stat", "wis").with("proficiency", "true") row=skill_row/>
             <Rows c loc=r container="senses" tag="sense" title="Senses" hint="Passive Perception is computed."
                 make=|_| El::new("sense").with("name", "darkvision").with("range", "60")
-                row=|c, l, _| view! { <div class="field-row">{pick_in(c, l, "name", sb::SENSES, None, "Sense", "")}{text_in(c, l, "range", "Feet", "60", "")}{text_in(c, l, "note", "Note", "(none)", "")}</div> }.into_any()/>
+                row=|c, l, _| view! { <div class="field-row">{pick_in(c, l, "name", sb::SENSES, None, "Sense", "")}{text_in(c, l, "range", "Feet", "60", "")}{text_in(c, l, "note", "Note", "(none)", "")}{tf::formula(c, l, "rangeFormula", "Feet formula")}</div> }.into_any()/>
             <Rows c loc=r container="vulnerabilities" tag="vulnerability" title="Vulnerabilities" make=|_| El::new("vulnerability").with("name", "fire") row=defense_row/>
             <Rows c loc=r container="resistances" tag="resistance" title="Resistances" make=|_| El::new("resistance").with("name", "fire") row=defense_row/>
             <Rows c loc=r container="immunities" tag="immunity" title="Immunities" hint="Damage types and conditions."
@@ -828,7 +849,7 @@ fn uses_rows(c: Card, l: Loc) -> impl IntoView {
     view! {
         <Rows c loc=l tag="uses" title="Uses" hint="\u{201c}(3/Day, or 4/Day in Lair)\u{201d}: one per variant."
             make=|_| El::new("uses").with("number", "1").with("frequency", "day")
-            row=|c, l, _| view! { <div class="field-row">{text_in(c, l, "number", "Number", "1", "")}{text_in(c, l, "frequency", "Per", "day", "")}{text_in(c, l, "note", "Note", "(none)", "")}</div> }.into_any()/>
+            row=|c, l, _| view! { <div class="field-row">{text_in(c, l, "number", "Number", "1", "")}{text_in(c, l, "frequency", "Per", "day", "")}{text_in(c, l, "note", "Note", "(none)", "")}{tf::formula(c, l, "numberFormula", "Number formula")}</div> }.into_any()/>
     }
 }
 
@@ -846,6 +867,7 @@ fn save_fields(c: Card, l: Loc, refs: RefCtx) -> impl IntoView {
             {pick_in(c, l, "saveType", sb::STATS, None, "Target saves with", "")}
             {pick_in(c, l, "saveStat", sb::STATS, None, "DC from", "8 + PB + this mod")}
             {text_in(c, l, "saveMod", "DC adjustment", "(none)", "")}
+            {move || (c.m().at(&l.s[..l.n]).is_some_and(|s| s.tag == "save")).then(|| tf::formula(c, l, "dcFormula", "DC formula"))}
         </div>
         <Prose c loc=l tag="targets" keep=true label="Targets" hint="\u{201c}each creature in a 15-foot Cone\u{201d}" refs/>
         {outcome("failure", "Failure")}
@@ -870,6 +892,7 @@ fn TraitCard(tab: DocTab, child: usize, mon: Memo<Option<El>>, path: Vec<usize>,
                     {text_in(c, r, "shortName", "Short name", "(none)", "")}
                     {text_in(c, r, "id", "Id", "(none)", "")}
                 </div>
+                {tf::variant(c, r)}
                 {uses_rows(c, r)}
                 <Prose c loc=r tag="description" label="Description" refs/>
                 <label class="flag">
@@ -1019,6 +1042,7 @@ fn rider_row(c: Card, l: Loc, _i: usize) -> AnyView {
             {pick_in(c, l, "saveType", sb::STATS, Some("(no save)"), "Save", "")}
             {text_in(c, l, "saveMod", "Save DC adj.", "(none)", "")}
         </div>
+        <div class="field-row">{tf::formula(c, l, "damageFormula", "Damage formula")}{tf::choice(c, l, "damageTypeChoice", "Type choice")}</div>
         <RiderProse c l/>
     }
     .into_any()
@@ -1124,6 +1148,7 @@ fn item_ids(c: Card, recharge: bool) -> AnyView {
             {text_in(c, r, "id", "Id", "", "Unique in the stat block; refs follow a rename")}
             {recharge.then(|| text_in(c, r, "recharge", "Recharge", "(none) 5-6", ""))}
         </div>
+        {recharge.then(|| tf::variant(c, r))}
     }
     .into_any()
 }
@@ -1148,6 +1173,7 @@ fn attack_numbers(c: Card) -> AnyView {
             {text_in(c, r, "attackMod", "Attack bonus", "(PB + mod)", "A number overrides")}
             {text_in(c, r, "reach", "Reach", "5", "feet")}
             {text_in(c, r, "range", "Range", "(none) 30/120", "")}
+            {tf::formula(c, r, "attackFormula", "Attack formula")}
         </div>
     }
     .into_any()
@@ -1162,6 +1188,7 @@ fn attack_damage(c: Card) -> AnyView {
             {pick_in(c, r, "damageType", sb::DAMAGE_TYPES, Some("(none)"), "Damage type", "")}
             {text_in(c, r, "note", "Note", "(none)", "after the bonus: \u{201c}with Advantage if…\u{201d}")}
         </div>
+        <div class="field-row">{tf::formula(c, r, "damageFormula", "Damage formula")}{tf::choice(c, r, "damageTypeChoice", "Damage type choice")}</div>
     }
     .into_any()
 }
@@ -1215,7 +1242,9 @@ fn spellcasting_fields(c: Card) -> AnyView {
             {text_in(c, r, "id", "Id", "(none)", "")}
             {pick_in(c, r, "spellcastingAbility", sb::STATS, None, "Ability", "")}
             {text_in(c, r, "dcMod", "DC adjustment", "(none)", "")}
+            {tf::formula(c, r, "dcFormula", "DC formula")}
         </div>
+        {tf::variant(c, r)}
         <div class="field flags">
             {flag_in(c, r, "verbalComponents", true, "Verbal")}
             {flag_in(c, r, "somaticComponents", true, "Somatic")}
@@ -1378,6 +1407,7 @@ fn LegendaryUses(tab: DocTab, child: usize, mon: Memo<Option<El>>) -> impl IntoV
 pub fn StatPage(tab: DocTab, child: usize) -> impl IntoView {
     let mon = Memo::new(move |_| sb::read(&tab.doc().source, child));
     let refs = ref_ctx(mon);
+    let tpl = tf::provide_tpl(mon);
     crate::prose_editor::provide_env(tab, shared::prose::Palette::StatBlock, Some(refs));
     // The tree's selection inside this stat block, as a path from it.
     let focus = Memo::new(move |_| {
@@ -1422,6 +1452,11 @@ pub fn StatPage(tab: DocTab, child: usize) -> impl IntoView {
                             }}).collect_view()}
                         </div>
                     </Section>
+                    <Show when=move || tpl.on.get() || present("formulas")>
+                        <Section title="Formulas" hint="A template's named numbers and the summoner's choices" focus=at("formulas")>
+                            <tf::FormulasSection tab child mon/>
+                        </Section>
+                    </Show>
                     <Section title="Heading" hint="Size, type, AC, initiative, HP, speeds" focus=at("heading")>
                         <HeadingCard tab child mon/>
                     </Section>
