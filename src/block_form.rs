@@ -14,8 +14,11 @@ use shared::inline::RefCtx;
 use shared::Change;
 use wasm_bindgen::JsCast;
 
+use shared::statblock as sb;
+
 use crate::apply::apply;
 use crate::prose_editor::ChipEditor;
+use crate::section_el_form;
 use crate::state::DocTab;
 
 fn highlighted(text: &str) -> impl IntoView {
@@ -51,18 +54,23 @@ fn tag_name(tag: &str) -> &'static str {
 }
 
 /// The non-paragraph blocks a container can take, for the add menu.
-fn other_blocks(at: &Container) -> &'static [(&'static str, &'static str)] {
+fn other_blocks(at: &Container) -> Vec<(&'static str, &'static str)> {
     match at {
-        Container::Section { .. } => &[("list", "List"), ("speakAloud", "Read-aloud box"), ("dialog", "Dialog")],
-        Container::Sidebar { .. } => &[("list", "List")],
+        Container::Section { .. } => {
+            let mut v = vec![("list", "List"), ("speakAloud", "Read-aloud box"), ("dialog", "Dialog")];
+            v.extend(section_el_form::SECTION_BLOCKS.iter().map(|t| (*t, section_el_form::label(t))));
+            v
+        }
+        Container::Sidebar { .. } => vec![("list", "List"), ("table", "Table")],
     }
 }
 
-/// A new block of kind `what` ("list", "speakAloud", "dialog") after child `after`.
+/// A new block of kind `what` after child `after`.
 fn add_block(tab: DocTab, at: Container, after: Option<usize>, what: &str) {
     let edit = match what {
         "list" => BlockEdit::AddList { at, after },
-        tag => BlockEdit::AddBox { at, after, tag: tag.to_string() },
+        "speakAloud" | "dialog" => BlockEdit::AddBox { at, after, tag: what.to_string() },
+        other => return section_el_form::add(tab, at, after, other),
     };
     apply(tab, Change::Block { edit });
 }
@@ -83,7 +91,14 @@ fn add_menu(tab: DocTab, at: StoredValue<Container>, label: &'static str, after:
                 }
             }>
             <option value="" selected=true>{label}</option>
-            {other_blocks(&at.get_value()).iter().map(|(v, l)| view! { <option value=*v>{*l}</option> }).collect_view()}
+            {move || {
+                let t = sb::read(&tab.doc().source, sb::ROOT).map(|r| section_el_form::targets(&r)).unwrap_or_default();
+                other_blocks(&at.get_value()).into_iter().map(|(v, l)| {
+                    let why = section_el_form::missing(v, &t);
+                    let text = match why { Some(w) => format!("{l} ({w})"), None => l.to_string() };
+                    view! { <option value=v disabled=why.is_some()>{text}</option> }
+                }).collect_view()
+            }}
         </select>
     }
 }
@@ -328,7 +343,7 @@ fn BlockRow(
                 let b = block.get().unwrap_or(Block { child: 0, tag: String::new(), text: String::new(), source: String::new() });
                 let src = b.source.clone();
                 // Lists and tables have their own editors: their summary links there.
-                let has_editor = matches!(b.tag.as_str(), "table" | "list" | "speakAloud" | "dialog");
+                let has_editor = matches!(b.tag.as_str(), "table" | "list" | "speakAloud" | "dialog") || section_el_form::SECTION_BLOCKS.contains(&b.tag.as_str());
                 let open_editor = move |ev: MouseEvent| {
                     ev.stop_propagation();
                     let d = tab.doc_untracked();
@@ -341,7 +356,8 @@ fn BlockRow(
                 let editor_name = match b.tag.as_str() {
                     "list" => "list editor",
                     "table" => "table editor",
-                    _ => "box editor",
+                    "speakAloud" | "dialog" => "box editor",
+                    _ => "block's page",
                 };
                 view! {
                     <div class="block-main readonly">

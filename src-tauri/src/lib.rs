@@ -164,6 +164,15 @@ fn find_logo(doc_path: String, src: Option<String>) -> Option<String> {
         .map(|p| project::path_str(&p))
 }
 
+/// The monster file a supplement's `<reference><monster file>` names, as a
+/// `<monsterEntry>` sees it: its parts, lairs and stat blocks with ids.
+#[tauri::command(rename_all = "snake_case")]
+fn monster_outline(doc_path: String, file: String) -> Result<shared::family::Outline, AppError> {
+    let p = std::path::Path::new(&doc_path).parent().map(|d| d.join(&file)).ok_or_else(|| AppError::new("The supplement has no folder."))?;
+    let text = std::fs::read_to_string(&p).map_err(|e| AppError::new(format!("Can't read {file}: {e}")))?;
+    shared::family::outline(&text).ok_or_else(|| AppError::new(format!("{file} isn't a monster file.")))
+}
+
 /// A native folder picker. None when cancelled.
 #[tauri::command(rename_all = "snake_case")]
 async fn pick_folder(title: String, start: Option<String>, app: AppHandle) -> Option<String> {
@@ -204,6 +213,7 @@ pub fn run() {
             ref_index,
             library,
             find_logo,
+            monster_outline,
             pick_folder
         ])
         .run(tauri::generate_context!())

@@ -27,7 +27,13 @@ pub fn ref_key(tag: &str, id: &str) -> String {
 /// What to select once the change is written.
 fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usize> + 'static {
     let change = change.clone();
-    move |d: &DocData| match &change {
+    move |d: &DocData| pick(&change, on_root, d)
+}
+
+fn pick(change: &Change, on_root: bool, d: &DocData) -> Option<usize> {
+    match change {
+        // A batch selects as its last change would.
+        Change::Batch { changes } => pick(changes.last()?, on_root, d),
         Change::Family { edit } => {
             let root = d.nodes.first()?;
             let kid = |c: usize| root.children.get(c).copied();
@@ -70,6 +76,7 @@ fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usiz
             let new_tag = match edit {
                 BlockEdit::AddList { after, .. } => Some(("list", after)),
                 BlockEdit::AddBox { after, tag, .. } => Some((tag.as_str(), after)),
+                BlockEdit::AddEl { after, el, .. } => Some((el.tag.as_str(), after)),
                 _ => None,
             };
             if let Some((tag, after)) = new_tag {
@@ -90,6 +97,8 @@ fn selection(change: &Change, on_root: bool) -> impl Fn(&DocData) -> Option<usiz
                 let root = d.nodes.first()?;
                 root.children.iter().rev().copied().find(|c| d.nodes[*c].tag == el.tag)
             }
+            // A section's block deleted from its page: the section.
+            StatEdit::Delete { child, path, .. } if *child == shared::statblock::ROOT && !path.is_empty() => Some(d.idx_of(&path[..path.len() - 1])),
             StatEdit::Delete { child, .. } => d.nodes.first()?.children.get(*child).copied(),
             _ => None,
         },
@@ -212,6 +221,11 @@ pub fn apply_from(tab: DocTab, change: Change, card: Option<String>) {
 /// Drops the draft a written change came from.
 fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
     match change {
+        Change::Batch { changes } => {
+            for c in changes {
+                saved(tab, c, card);
+            }
+        }
         Change::Cover { .. } => tab.cover_draft.set(None),
         Change::Chapter { edit: ChapterEdit::Update { name, .. } | ChapterEdit::Delete { name } } => {
             let name = name.clone();
@@ -236,7 +250,7 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                     f.remove(&k);
                 });
             }
-            BlockEdit::AddList { .. } | BlockEdit::AddBox { .. } => {}
+            BlockEdit::AddList { .. } | BlockEdit::AddBox { .. } | BlockEdit::AddEl { .. } => {}
             BlockEdit::AddP { after, .. } => {
                 // Focus the new paragraph: right after `after`, or first in the body.
                 if let Some(a) = after {

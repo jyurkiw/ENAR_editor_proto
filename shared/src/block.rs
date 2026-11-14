@@ -67,6 +67,9 @@ pub enum BlockEdit {
     /// A new `<speakAloud>` or `<dialog>` (tag) with one empty paragraph, after child
     /// `after` or first in the body. Sections only.
     AddBox { at: Container, after: Option<usize>, tag: String },
+    /// Any other block (an image, a stat block, a table link...), written from its El,
+    /// after child `after` or first in the body.
+    AddEl { at: Container, after: Option<usize>, el: crate::statblock::El },
     /// Delete a paragraph.
     DeleteP { at: Container, child: usize },
     /// Move a body child before another, or to the end of the body.
@@ -81,6 +84,7 @@ impl BlockEdit {
             | BlockEdit::AddP { at, .. }
             | BlockEdit::AddList { at, .. }
             | BlockEdit::AddBox { at, .. }
+            | BlockEdit::AddEl { at, .. }
             | BlockEdit::DeleteP { at, .. }
             | BlockEdit::Move { at, .. } => at,
         }
@@ -317,6 +321,12 @@ pub fn sidebar_links(nodes: &[StructNode], source: &str, id: &str) -> usize {
     nodes.iter().filter(|n| n.tag == "sidebarLink" && attr(source, n, "id").as_deref() == Some(id)).count()
 }
 
+/// What a section's body can hold besides paragraphs, lists and boxes (each its own page).
+pub const SECTION_BLOCKS: &[&str] = &[
+    "image", "figure", "tableLink", "sidebarLink", "parcelLink", "monsterStatblock", "monsterEntry", "magicItemBlock", "spellBlock",
+    "skillcheckResultTable", "pageEnd",
+];
+
 fn child<'a>(nodes: &'a [StructNode], c: &StructNode, i: usize) -> Result<&'a StructNode, String> {
     c.children.get(i).map(|k| &nodes[*k]).ok_or_else(|| "that block isn't there any more; reopen the file".to_string())
 }
@@ -341,8 +351,18 @@ pub fn plan(source: &str, e: &BlockEdit) -> Result<String, String> {
             }
             edit::apply(source, &[set_inner(source, p, text).ok_or("bad <p>")?])
         }
-        BlockEdit::AddP { after, .. } | BlockEdit::AddList { after, .. } | BlockEdit::AddBox { after, .. } => {
+        BlockEdit::AddP { after, .. } | BlockEdit::AddList { after, .. } | BlockEdit::AddBox { after, .. } | BlockEdit::AddEl { after, .. } => {
             let xml = match e {
+                BlockEdit::AddEl { el, .. } => {
+                    let ok = match c.tag.as_str() {
+                        "section" => SECTION_BLOCKS.contains(&el.tag.as_str()),
+                        _ => ["table", "list"].contains(&el.tag.as_str()),
+                    };
+                    if !ok {
+                        return Err(format!("a <{}> can't hold a <{}>", c.tag, el.tag));
+                    }
+                    crate::statblock::to_xml(el, &c.tag, edit::indent_unit(source))
+                }
                 BlockEdit::AddList { .. } => crate::list::new_list_xml(source),
                 BlockEdit::AddBox { tag, .. } => {
                     if !crate::boxes::TAGS.contains(&tag.as_str()) {

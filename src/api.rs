@@ -119,6 +119,17 @@ pub async fn ref_index(path: &str) -> Result<shared::inline::RefIndex, AppError>
     invoke("ref_index", &PathArg { path }).await
 }
 
+/// The parts, lairs and stat blocks of the monster file `file` (relative to the
+/// supplement at `doc_path`).
+pub async fn monster_outline(doc_path: &str, file: &str) -> Result<shared::family::Outline, AppError> {
+    #[derive(Serialize)]
+    struct A<'a> {
+        doc_path: &'a str,
+        file: &'a str,
+    }
+    invoke("monster_outline", &A { doc_path, file }).await
+}
+
 /// The DMs Guild logo file a supplement's cover would use: `src` relative to the
 /// supplement, or DMsGuildProductLogoLarge.png in its folder or any folder above.
 pub async fn find_logo(doc_path: &str, src: Option<&str>) -> Option<String> {

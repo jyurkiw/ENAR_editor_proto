@@ -24,6 +24,7 @@ use crate::item_form::ItemPage;
 use crate::spell_form::SpellPage;
 use crate::license_form::LicensePage;
 use crate::supplement_parts::{AddParts, PartPage};
+use crate::section_el_form::SectionElPage;
 use crate::list_form::ListForm;
 use shared::boxes::{self as boxes, BoxAt};
 use crate::table_form::TableForm;
@@ -59,6 +60,9 @@ enum FormKind {
     License,
     /// A supplement's credits, license, treasure or data (by tag), or anything in one.
     Part(String),
+    /// A section's image, figure, link, stat block, monster entry, magic item, spell, skill
+    /// check table or page end (or anything in one), by its key from the root.
+    SectionEl(Vec<usize>),
 }
 
 fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
@@ -91,6 +95,14 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
                 return Some(FormKind::Part(top.tag.clone()));
             }
         }
+    }
+    // A section's block (other than paragraphs, lists and boxes), or anything in one.
+    let mut cur = idx;
+    while let Some(p) = d.parents.get(cur).copied().flatten() {
+        if d.nodes[p].tag == "section" && crate::section_el_form::SECTION_BLOCKS.contains(&d.nodes[cur].tag.as_str()) {
+            return Some(FormKind::SectionEl(d.key_of(cur)));
+        }
+        cur = p;
     }
     // A table, or anything inside one: the table editor.
     let mut cur = Some(idx);
@@ -253,7 +265,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 }
             }
             // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | None => {}
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | Some(FormKind::SectionEl(_)) | None => {}
             Some(FormKind::Monster(path, tag)) => {
                 if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
                     let p2 = path.clone();
@@ -337,6 +349,7 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     (Some(FormKind::Spell), Mode::Form) => view! { <SpellPage tab/> }.into_any(),
                     (Some(FormKind::License), Mode::Form) => view! { <LicensePage tab/> }.into_any(),
                     (Some(FormKind::Part(tag)), Mode::Form) => view! { <PartPage tab tag/> }.into_any(),
+                    (Some(FormKind::SectionEl(key)), Mode::Form) => view! { <SectionElPage tab key/> }.into_any(),
                     _ => source().into_any(),
                 }}
             </div>

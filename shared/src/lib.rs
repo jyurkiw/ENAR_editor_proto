@@ -18,6 +18,7 @@ pub mod names;
 pub mod prose;
 pub mod monster;
 pub mod reference;
+pub mod section;
 pub mod spell;
 pub mod statblock;
 pub mod table;
@@ -366,6 +367,9 @@ pub enum Change {
     Family { edit: family::FamilyEdit },
     /// A stat block's fields, traits and actions (monster files).
     Stat { edit: statblock::StatEdit },
+    /// Several changes in order, validated and written together (a new table and the
+    /// link that places it).
+    Batch { changes: Vec<Change> },
 }
 
 impl Change {
@@ -382,6 +386,7 @@ impl Change {
             Change::Monster { edit } => monster::plan(source, edit),
             Change::Family { edit } => family::plan(source, edit),
             Change::Stat { edit } => statblock::plan(source, edit),
+            Change::Batch { changes } => changes.iter().try_fold(source.to_string(), |s, c| c.plan(&s)),
         }
     }
 }

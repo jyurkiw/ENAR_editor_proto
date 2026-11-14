@@ -762,6 +762,155 @@ mod real {
         assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
     }
 
+    /// Every section block in every supplement (images, figures, links, stat blocks,
+    /// monster entries, item and spell blocks, skill check tables, page ends): applied
+    /// unchanged, each writes nothing.
+    #[test]
+    #[ignore]
+    fn section_blocks_unchanged_are_no_ops() {
+        use shared::statblock::{self as sb, StatEdit, ROOT};
+        fn xmls(dir: &Path, out: &mut Vec<PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if name.starts_with('.') || name == "node_modules" || name == "target" {
+                    continue;
+                }
+                if p.is_dir() {
+                    xmls(&p, out);
+                } else if name.ends_with(".xml") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        xmls(Path::new(REPO), &mut files);
+        let (mut checked, mut failures) = (0, Vec::new());
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            if !src.contains("<supplement") {
+                continue;
+            }
+            let Some(root) = sb::read(&src, ROOT).filter(|r| r.tag == "supplement") else { continue };
+            for ch in root.all("chapter") {
+                for s in ch.all("section") {
+                    for b in s.kids.iter().filter(|k| shared::block::SECTION_BLOCKS.contains(&k.tag.as_str())) {
+                        checked += 1;
+                        match sb::plan(&src, &StatEdit::Update { child: ROOT, el: b.clone(), scope: None }) {
+                            Ok(out) if out == src => {}
+                            Ok(out) => {
+                                let at = src.bytes().zip(out.bytes()).position(|(a, b)| a != b).unwrap_or(0);
+                                failures.push(format!("{}: <{}> changed near: {:?}", f.display(), b.tag, &src[at.saturating_sub(40)..(at + 40).min(src.len())]));
+                            }
+                            Err(e) => failures.push(format!("{}: <{}>: {e}", f.display(), b.tag)),
+                        }
+                    }
+                }
+            }
+        }
+        println!("{checked} section blocks checked");
+        assert!(checked > 50, "only {checked}");
+        assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures[..failures.len().min(20)].join("\n"));
+    }
+
+    /// On a copy of the test adventure: each kind of section block added (with a new
+    /// table or sidebar where a link needs one), edited through its page's fields, and
+    /// deleted, each against the schema.
+    #[test]
+    #[ignore]
+    fn section_blocks_round_trip() {
+        use shared::block::{BlockEdit, Container, SECTION_BLOCKS};
+        use shared::statblock::{self as sb, El, StatEdit, ROOT};
+        let (p, v) = setup();
+        struct Gone(PathBuf);
+        impl Drop for Gone {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let sup = PathBuf::from(format!("{REPO}/adventures/compiler-test/zz-blocks-test.xml"));
+        let _g = Gone(sup.clone());
+        std::fs::copy(format!("{REPO}/adventures/compiler-test/adventure.xml"), &sup).unwrap();
+        let path = path_str(&sup);
+        let mut doc = open_file(&path, &p, &v).unwrap();
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+        let run = |expected: &str, change: shared::Change| match apply_edit(&path, expected, &p, &v, |s| change.plan(s)).unwrap() {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("{change:?} refused: {other:?}"),
+        };
+        let root = sb::read(&doc.source, ROOT).unwrap();
+        let ci = root.kids.iter().position(|k| k.tag == "chapter" && k.get("name") == "hillsfort").unwrap();
+        let at = Container::Section { chapter: "hillsfort".into(), name: root.kids[ci].all("section")[0].get("name").to_string(), nth: 0 };
+        let section = |src: &str| {
+            let r = sb::read(src, ROOT).unwrap();
+            r.kids[ci].all("section")[0].clone()
+        };
+        for tag in SECTION_BLOCKS {
+            let root = sb::read(&doc.source, ROOT).unwrap();
+            let (mut pre, el) = shared::section::new_block(tag, &root, ci).unwrap_or_else(|| panic!("nothing for <{tag}>"));
+            pre.push(shared::Change::Block { edit: BlockEdit::AddEl { at: at.clone(), after: None, el } });
+            doc = run(&doc.source, shared::Change::Batch { changes: pre });
+            assert!(matches!(doc.validation, Validation::Valid { .. }), "<{tag}>: {:?}", doc.validation);
+            // It went first in the body.
+            let s = section(&doc.source);
+            let first = s.kids.iter().find(|k| k.tag != "title" && k.tag != "subtitle").unwrap();
+            assert_eq!(first.tag, *tag);
+        }
+
+        // Edits, as the pages make them.
+        let find = |src: &str, tag: &str| section(src).kids.iter().find(|k| k.tag == tag).unwrap().clone();
+        // A monster entry listing what prints, from its file's outline.
+        let mut me = find(&doc.source, "monsterEntry");
+        let r = sb::read(&doc.source, ROOT).unwrap();
+        let file = shared::section::targets(&r).monsters.into_iter().find(|m| m.0 == me.get("ref")).unwrap().2;
+        let text = std::fs::read_to_string(sup.parent().unwrap().join(&file)).unwrap();
+        let o = shared::family::outline(&text).unwrap();
+        assert!(!o.monsters.is_empty());
+        me.kids = o.parts.iter().take(1).map(|(i, _)| El::new("part").with("ref", i)).collect();
+        me.kids.push(El::new("statblock").with("ref", &o.monsters[0].id));
+        doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Update { child: ROOT, el: me, scope: None } });
+        assert!(doc.source.contains(&format!("<statblock ref=\"{}\"/>", o.monsters[0].id)), "{}", doc.source);
+        // Then everything except lairs and quotes.
+        let mut me = find(&doc.source, "monsterEntry");
+        me.kids.clear();
+        me.set("omit", "quoteBox lair");
+        doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Update { child: ROOT, el: me, scope: None } });
+        assert!(doc.source.contains("omit=\"quoteBox lair\""));
+        // A skill check table with headings and two results.
+        let mut st = find(&doc.source, "skillcheckResultTable");
+        st.set("stat", "int");
+        st.set("skill", "history");
+        st.kids = vec![
+            El::new("headers").with_kid(El::new("rh").with_text("Lore")).with_kid(El::new("rh").with_text("Source")),
+            El::new("result").with("dc", "10").with_kid(El::new("rd").with_text("Old <b>news</b>.")).with_kid(El::new("rd").with_text("Rumour")),
+            El::new("result").with("dc", "15").with_kid(El::new("rd").with_text("New.")).with_kid(El::new("rd").with_text("A book")),
+        ];
+        doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Update { child: ROOT, el: st, scope: None } });
+        assert!(doc.source.contains("<rd>Old <b>news</b>.</rd>"), "{}", doc.source);
+        // A figure switched to hold a stat block; a stat block floated right.
+        let mut fig = find(&doc.source, "figure");
+        let mon = find(&doc.source, "monsterStatblock").get("ref").to_string();
+        fig.kids = vec![El::new("monsterStatblock").with("ref", &mon)];
+        fig.set("name", "The boss");
+        doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Update { child: ROOT, el: fig, scope: None } });
+        let mut ms = find(&doc.source, "monsterStatblock");
+        ms.set("float", "right");
+        doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Update { child: ROOT, el: ms, scope: None } });
+        assert!(doc.source.contains("float=\"right\""));
+        // A page end that doesn't balance.
+        let mut pe = find(&doc.source, "pageEnd");
+        pe.set("balance", "false");
+        doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Update { child: ROOT, el: pe, scope: None } });
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+
+        // Each deleted from its page.
+        for tag in SECTION_BLOCKS {
+            let el = find(&doc.source, tag);
+            doc = run(&doc.source, shared::Change::Stat { edit: StatEdit::Delete { child: ROOT, path: el.path.clone().unwrap(), tag: tag.to_string() } });
+        }
+        assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
+    }
+
     /// Every magic item in the data: each card applied unchanged writes nothing.
     #[test]
     #[ignore]

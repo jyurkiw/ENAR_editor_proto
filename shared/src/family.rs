@@ -317,6 +317,66 @@ fn lair_refs(source: &str, nodes: &[StructNode], id: &str) -> Vec<(usize, usize)
 }
 
 /// The family's header and parts; None when the file isn't a well-formed `<monsters>`.
+/// A monster file as a `<monsterEntry>` sees it: its name, the family's parts and lairs
+/// with ids, and each stat block with its own parts.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Outline {
+    pub name: String,
+    /// (id, label): the family's own parts (brief, habitats, quote, image, lore, table).
+    pub parts: Vec<(String, String)>,
+    pub lairs: Vec<(String, String)>,
+    pub monsters: Vec<OutlineMonster>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct OutlineMonster {
+    pub id: String,
+    pub name: String,
+    pub parts: Vec<(String, String)>,
+}
+
+const ENTRY_PARTS: &[&str] = &["brief", "habitats", "quoteBox", "image", "description", "distinctionTable"];
+
+fn outline_label(e: &crate::statblock::El) -> String {
+    let kind = match e.tag.as_str() {
+        "brief" => "Subtitle",
+        "habitats" => "Habitats",
+        t => part_label(t),
+    };
+    let name = e.get("name");
+    let words = if !name.is_empty() {
+        name.to_string()
+    } else if !e.text.trim().is_empty() {
+        e.text.trim().chars().take(40).collect()
+    } else if let Some(n) = e.kid("name") {
+        n.text.trim().to_string()
+    } else {
+        e.get("src").to_string()
+    };
+    if words.is_empty() { kind.to_string() } else { format!("{kind}: {words}") }
+}
+
+pub fn outline(source: &str) -> Option<Outline> {
+    let root = crate::statblock::read(source, crate::statblock::ROOT).filter(|r| r.tag == "monsters")?;
+    let with_id = |e: &crate::statblock::El, tags: &[&str]| {
+        e.kids.iter().filter(|k| tags.contains(&k.tag.as_str()) && !k.get("id").is_empty()).map(|k| (k.get("id").to_string(), outline_label(k))).collect::<Vec<_>>()
+    };
+    Some(Outline {
+        name: root.kid("name").map(|n| n.text.trim().to_string()).unwrap_or_default(),
+        parts: with_id(&root, ENTRY_PARTS),
+        lairs: with_id(&root, &["lair"]),
+        monsters: root
+            .all("monster")
+            .into_iter()
+            .map(|m| OutlineMonster {
+                id: m.get("id").to_string(),
+                name: m.kid("name").map(|n| n.text.trim().to_string()).unwrap_or_default(),
+                parts: with_id(m, ENTRY_PARTS),
+            })
+            .collect(),
+    })
+}
+
 pub fn read(source: &str) -> Option<Family> {
     let nodes = parse_full(source).ok()?.nodes;
     let root = nodes.first().filter(|r| r.tag == "monsters")?;

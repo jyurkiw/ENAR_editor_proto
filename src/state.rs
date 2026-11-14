@@ -64,7 +64,7 @@ impl DocData {
     }
 
     /// The node at a key, or the deepest ancestor that still exists.
-    fn idx_of(&self, key: &[usize]) -> usize {
+    pub fn idx_of(&self, key: &[usize]) -> usize {
         let mut cur = 0;
         for k in key {
             match self.doc.nodes[cur].children.get(*k) {

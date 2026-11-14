@@ -103,6 +103,9 @@ impl Card {
     pub(crate) fn m(&self) -> El {
         self.model.get()
     }
+    pub(crate) fn m_untracked(&self) -> El {
+        self.model.get_untracked()
+    }
     pub(crate) fn change(&self, f: impl FnOnce(&mut El)) {
         self.d.change(f)
     }

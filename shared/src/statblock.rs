@@ -76,6 +76,8 @@ const PROSE: &[&str] = &[
     "li", "th", "title", "subtitle", "data",
     // spells
     "cantripUpgrades", "slotUpgrades",
+    // supplements: a skill check table's cells
+    "rd",
 ];
 
 /// Is `<tag>` (in `<parent>`) prose? A trait's `<description>` is; the lore
