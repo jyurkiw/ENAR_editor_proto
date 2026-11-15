@@ -49,7 +49,7 @@ thread_local! {
     static HIGHLIGHTS: RefCell<Option<[JsHighlight; 2]>> = const { RefCell::new(None) };
     /// Mentions dismissed this session: (file, normalized text).
     static DISMISSED: RefCell<HashSet<(String, String)>> = RefCell::new(HashSet::new());
-    /// Bumped on each dismissal, so boxes re-mark.
+    /// Bumped on each dismissal (or ignored word), so boxes re-mark.
     static DISMISS_VERSION: leptos::prelude::ArcRwSignal<u32> = leptos::prelude::ArcRwSignal::new(0);
 }
 
@@ -78,6 +78,11 @@ fn norm(text: &str) -> String {
 /// Stops offering `text` as a pill in `file` for the rest of the session.
 pub fn dismiss(file: &str, text: &str) {
     DISMISSED.with(|d| d.borrow_mut().insert((file.to_string(), norm(text))));
+    bump();
+}
+
+/// Makes every box re-mark (after a dismissal, or a word ignored).
+pub fn bump() {
     DISMISS_VERSION.with(|v| leptos::prelude::Update::update(v, |n| *n += 1));
 }
 
@@ -100,14 +105,41 @@ pub struct PillMark {
 /// One box's ranges in the page's highlights.
 #[derive(Default)]
 pub struct BoxMarks {
-    spelling: Vec<web_sys::Range>,
+    /// Misspelled words and their ranges.
+    spelling: Vec<(web_sys::Range, String)>,
     pub pills: Vec<PillMark>,
+}
+
+/// What's under the pointer.
+pub enum Hit {
+    /// A mention: its index in [`BoxMarks::pills`].
+    Pill(usize),
+    /// A misspelled word.
+    Word(web_sys::Range, String),
+    None,
+}
+
+fn contains(r: &web_sys::Range, x: f64, y: f64) -> bool {
+    let rects = r.get_client_rects();
+    let Some(rects) = rects else { return false };
+    (0..rects.length()).filter_map(|i| rects.get(i)).any(|b| x >= b.left() && x <= b.right() && y >= b.top() && y <= b.bottom())
+}
+
+/// The mention or misspelling at viewport point (x, y), mentions first.
+pub fn hit(m: &BoxMarks, x: f64, y: f64) -> Hit {
+    if let Some(i) = m.pills.iter().position(|p| contains(&p.range, x, y)) {
+        return Hit::Pill(i);
+    }
+    match m.spelling.iter().find(|(r, _)| contains(r, x, y)) {
+        Some((r, w)) => Hit::Word(r.clone(), w.clone()),
+        None => Hit::None,
+    }
 }
 
 /// Drops a box's ranges from the highlights (before re-marking, or when it goes away).
 pub fn clear(m: &mut BoxMarks) {
     with_highlights(|h| {
-        for r in m.spelling.drain(..) {
+        for (r, _) in m.spelling.drain(..) {
             h[SPELLING].delete(&r);
         }
         for p in m.pills.drain(..) {
@@ -196,12 +228,12 @@ pub fn mark(div: &web_sys::HtmlElement, m: &mut BoxMarks, file: &str, cands: &[C
                 continue;
             }
             if let Some(r) = run.range(&doc, s, e) {
-                m.spelling.push(r);
+                m.spelling.push((r, run.text[s..e].to_string()));
             }
         }
     }
     with_highlights(|h| {
-        for r in &m.spelling {
+        for (r, _) in &m.spelling {
             h[SPELLING].add(r);
         }
         for p in &m.pills {

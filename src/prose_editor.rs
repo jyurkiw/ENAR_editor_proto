@@ -207,6 +207,109 @@ enum Panel {
     Gen,
     /// A tag's fields: a new tag, or chip number `chip` (among the box's chips).
     Tag { tag: String, attrs: Vec<(String, String)>, text: String, chip: Option<usize> },
+    /// The right-click menu at viewport point (x, y).
+    Menu { x: i32, y: i32, title: Option<String>, items: Vec<MenuItem> },
+    /// Turning the selection into a variable: a `<data>` entry holding it as its value.
+    Variable { value: String },
+    /// Turning the selection into a person, place or thing: a `<noun>` entry.
+    Noun { text: String },
+}
+
+/// One row of the right-click menu.
+#[derive(Clone, PartialEq)]
+enum MenuItem {
+    /// Make the mention under the pointer a ref to this entry form.
+    Pill(shared::pills::Candidate),
+    /// Stop offering this text as a pill for the session.
+    Dismiss(String),
+    /// Replace the misspelled word with this spelling.
+    Suggest(String),
+    NoSuggestions,
+    /// Stop marking this word for the session.
+    Ignore(String),
+    /// The ref generator, on the selection (as Ctrl+K).
+    MakePill,
+    Variable,
+    Noun,
+    Cut,
+    Copy,
+    Paste,
+    Sep,
+}
+
+/// Why `name` can't be a new variable's name (letters only, not taken), if it can't.
+fn variable_problem(name: &str, taken: &[String]) -> Option<String> {
+    if name.is_empty() {
+        Some("Give the variable a name.".into())
+    } else if !name.chars().all(|c| c.is_ascii_alphabetic()) {
+        Some("Letters only: no digits, spaces or punctuation (bridgeToll, not toll2).".into())
+    } else if taken.iter().any(|t| t == name) {
+        Some(format!("Another entry is already called \u{201c}{name}\u{201d}."))
+    } else {
+        None
+    }
+}
+
+/// A letters-only name from a value's words ("Reed Mill toll" -> "reedMillToll").
+fn camel(value: &str) -> String {
+    let mut out = String::new();
+    for w in value.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()) {
+        let w = w.to_ascii_lowercase();
+        if out.is_empty() {
+            out.push_str(&w);
+        } else {
+            let mut cs = w.chars();
+            if let Some(f) = cs.next() {
+                out.push(f.to_ascii_uppercase());
+                out.push_str(cs.as_str());
+            }
+        }
+    }
+    out
+}
+
+/// Moves a range's ends inward past whitespace (within its end text nodes), so turning
+/// " the toll " into a pill keeps the spaces around it.
+fn trim_range(r: &web_sys::Range) {
+    let ws_utf16 = |s: &str| s.chars().take_while(|c| c.is_whitespace()).map(|c| c.len_utf16() as u32).sum::<u32>();
+    if let (Ok(n), Ok(o)) = (r.start_container(), r.start_offset()) {
+        if n.node_type() == web_sys::Node::TEXT_NODE {
+            let t: Vec<u16> = n.text_content().unwrap_or_default().encode_utf16().collect();
+            let rest = String::from_utf16_lossy(&t[(o as usize).min(t.len())..]);
+            let k = ws_utf16(&rest);
+            if k > 0 {
+                let _ = r.set_start(&n, o + k);
+            }
+        }
+    }
+    if let (Ok(n), Ok(o)) = (r.end_container(), r.end_offset()) {
+        if n.node_type() == web_sys::Node::TEXT_NODE {
+            let t: Vec<u16> = n.text_content().unwrap_or_default().encode_utf16().collect();
+            let before: String = String::from_utf16_lossy(&t[..(o as usize).min(t.len())]).chars().rev().collect();
+            let k = ws_utf16(&before);
+            if k > 0 && o >= k {
+                let _ = r.set_end(&n, o - k);
+            }
+        }
+    }
+}
+
+/// The selection holds text and no chips (so it can become a variable or a noun).
+fn plain_selection(div: &web_sys::HtmlElement, r: &web_sys::Range) -> bool {
+    if String::from(r.to_string()).trim().is_empty() {
+        return false;
+    }
+    let Ok(chips) = div.query_selector_all("[data-xml]") else { return true };
+    !(0..chips.length()).filter_map(|i| chips.item(i)).any(|c| r.intersects_node(&c).unwrap_or(false))
+}
+
+fn exec(cmd: &str, value: Option<&str>) {
+    if let Some(hd) = document().and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok()) {
+        let _ = match value {
+            Some(v) => hd.exec_command_with_show_ui_and_value(cmd, false, v),
+            None => hd.exec_command(cmd),
+        };
+    }
 }
 
 /// One thing the generator can insert.
@@ -512,6 +615,7 @@ pub fn ChipEditor(
         let xml = serialize(&div);
         last.set_value(Some(xml.clone()));
         set.run(xml);
+        check();
     };
     // Insert a chip where the caret was (replacing the selection), then emit.
     let insert_xml = move |xml: String| {
@@ -578,6 +682,165 @@ pub fn ChipEditor(
             focus_panel();
         }
     };
+    // Right-click: our menu, for the mention or misspelling under the pointer, then the
+    // selection, then the clipboard.
+    let sel_range = StoredValue::new_local(None::<web_sys::Range>);
+    let var_name = RwSignal::new(String::new());
+    let noun_name = RwSignal::new(String::new());
+    let noun_short = RwSignal::new(String::new());
+    let noun_kind = RwSignal::new(String::from("person"));
+    let form_err = RwSignal::new(None::<String>);
+    let on_menu = move |ev: MouseEvent| {
+        ev.prevent_default();
+        let Some(div) = el.get_untracked() else { return };
+        let (x, y) = (ev.client_x(), ev.client_y());
+        let hit = marks.with_value(|m| match crate::hints::hit(m, x as f64, y as f64) {
+            crate::hints::Hit::Pill(i) => Some((m.pills[i].range.clone(), m.pills[i].text.clone(), Some(m.pills[i].cands.clone()))),
+            crate::hints::Hit::Word(r, w) => Some((r, w, None)),
+            crate::hints::Hit::None => None,
+        });
+        let sel = range_in(&div).filter(|r| !r.collapsed());
+        sel_range.set_value(sel.clone());
+        saved.set_value(None);
+        let mut items = Vec::new();
+        let mut title = None;
+        match hit {
+            Some((r, text, Some(cands))) => {
+                saved.set_value(Some(r));
+                title = Some(format!("\u{201c}{text}\u{201d}"));
+                items.extend(cands.into_iter().map(MenuItem::Pill));
+                items.push(MenuItem::Dismiss(text));
+                items.push(MenuItem::Sep);
+            }
+            Some((r, word, None)) => {
+                saved.set_value(Some(r));
+                title = Some(format!("\u{201c}{word}\u{201d}"));
+                let sug = crate::spelling::suggest(&word);
+                if sug.is_empty() {
+                    items.push(MenuItem::NoSuggestions);
+                }
+                items.extend(sug.into_iter().map(MenuItem::Suggest));
+                items.push(MenuItem::Ignore(word));
+                items.push(MenuItem::Sep);
+            }
+            None => {}
+        }
+        items.push(MenuItem::MakePill);
+        if sel.as_ref().is_some_and(|r| plain_selection(&div, r)) {
+            if env.palette.ref_tag("data").is_some() {
+                items.push(MenuItem::Variable);
+            }
+            if env.palette.ref_tag("noun").is_some() {
+                items.push(MenuItem::Noun);
+            }
+        }
+        items.extend([MenuItem::Sep, MenuItem::Cut, MenuItem::Copy, MenuItem::Paste]);
+        // Keep the menu on screen.
+        let (w, h) = web_sys::window()
+            .map(|w| (w.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1e4), w.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(1e4)))
+            .unwrap_or((1e4, 1e4));
+        let (x, y) = (x.min(w as i32 - 320).max(0), y.min(h as i32 - 40 - 30 * items.len() as i32).max(0));
+        panel.set(Panel::Menu { x, y, title, items });
+    };
+    let run_item = move |it: MenuItem| {
+        panel.set(Panel::None);
+        let Some(div) = el.get_untracked() else { return };
+        let selected = move || {
+            sel_range.get_value().map(|r| {
+                trim_range(&r);
+                r
+            })
+        };
+        match it {
+            // `saved` holds the mention.
+            MenuItem::Pill(c) => insert_xml(c.ref_xml),
+            MenuItem::Dismiss(t) => crate::hints::dismiss(&env.tab.doc_untracked().path, &t),
+            MenuItem::Suggest(w) => {
+                if let (Some(r), Some(d)) = (saved.get_value(), document()) {
+                    let _ = r.delete_contents();
+                    let _ = r.insert_node(&d.create_text_node(&w));
+                    saved.set_value(None);
+                    emit();
+                }
+            }
+            MenuItem::Ignore(w) => crate::spelling::ignore(&w),
+            MenuItem::MakePill => open_gen(),
+            MenuItem::Variable => {
+                let Some(r) = selected() else { return };
+                let v = String::from(r.to_string());
+                saved.set_value(Some(r));
+                var_name.set(camel(&v));
+                form_err.set(None);
+                panel.set(Panel::Variable { value: v });
+                focus_panel();
+            }
+            MenuItem::Noun => {
+                let Some(r) = selected() else { return };
+                let t = String::from(r.to_string());
+                saved.set_value(Some(r));
+                noun_name.set(t.clone());
+                noun_short.set(String::new());
+                form_err.set(None);
+                panel.set(Panel::Noun { text: t });
+                focus_panel();
+            }
+            MenuItem::Cut | MenuItem::Copy => {
+                let _ = div.focus();
+                let cut = it == MenuItem::Cut;
+                exec(if cut { "cut" } else { "copy" }, None);
+                if cut {
+                    emit();
+                }
+            }
+            MenuItem::Paste => {
+                let _ = div.focus();
+                spawn_local(async move {
+                    match crate::api::clipboard_text().await {
+                        // insertText fires input, which emits.
+                        Ok(t) => exec("insertText", Some(&t)),
+                        Err(e) => leptos::logging::log!("paste: {}", e.message),
+                    }
+                });
+            }
+            MenuItem::NoSuggestions | MenuItem::Sep => {}
+        }
+    };
+    let taken_ids = move || env.doc.with_untracked(|d| d.entries.iter().map(|(_, i)| i.clone()).collect::<Vec<String>>());
+    let save_variable = move || {
+        let Panel::Variable { value } = panel.get_untracked() else { return };
+        let name = var_name.get_untracked().trim().to_string();
+        if let Some(e) = variable_problem(&name, &taken_ids()) {
+            form_err.set(Some(e));
+            return;
+        }
+        let mut entry = RefEntry::new("data");
+        entry.attrs = vec![("id".into(), name.clone()), ("value".into(), value.trim().to_string())];
+        apply(env.tab, Change::Reference { edit: RefEdit::Add { entry } });
+        insert_xml(format!("<dataRef ref=\"{}\" value=\"value\"/>", escape_attr(&name, '"')));
+    };
+    let save_noun = move || {
+        let Panel::Noun { text } = panel.get_untracked() else { return };
+        let name = noun_name.get_untracked().trim().to_string();
+        let short = noun_short.get_untracked().trim().to_string();
+        if name.is_empty() {
+            form_err.set(Some("Give it a name.".into()));
+            return;
+        }
+        let id = shared::statblock::fresh(&shared::statblock::slug(&name), &taken_ids());
+        let mut entry = RefEntry::new("noun");
+        entry.attrs = vec![("id".into(), id.clone()), ("name".into(), name.clone())];
+        if !short.is_empty() && short != name {
+            entry.attrs.push(("shortName".into(), short.clone()));
+        }
+        let kind = noun_kind.get_untracked();
+        if !kind.is_empty() {
+            entry.attrs.push(("kind".into(), kind));
+        }
+        let form = if !short.is_empty() && prose::norm_eq(&text, &short) { "shortName" } else { "name" };
+        apply(env.tab, Change::Reference { edit: RefEdit::Add { entry } });
+        insert_xml(format!("<nounRef ref=\"{}\" value=\"{form}\"/>", escape_attr(&id, '"')));
+    };
+
     // Click a chip: its fields.
     let on_click = move |ev: MouseEvent| {
         let Some(t) = ev.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) else { return };
@@ -688,7 +951,7 @@ pub fn ChipEditor(
             <div class="chip-row">
                 <div node_ref=el id=move || { let i = id.get(); (!i.is_empty()).then_some(i) } class="chip-box" class:single=single contenteditable="true" spellcheck="false" data-placeholder=placeholder
                     class:hidden=move || bad.with(|b| b.is_some())
-                    on:input=move |_| { emit(); check(); } on:keydown=on_key on:click=on_click></div>
+                    on:input=move |_| emit() on:keydown=on_key on:click=on_click on:contextmenu=on_menu></div>
                 <button type="button" class="icon-btn chip-add" title="Insert a ref or tag (Ctrl+K)" on:mousedown=move |ev: MouseEvent| {
                     // Keep the caret where it was.
                     ev.prevent_default();
@@ -736,6 +999,85 @@ pub fn ChipEditor(
                         </div>
                     </div>
                 }.into_any(),
+                Panel::Menu { x, y, title, items } => view! {
+                    <div class="menu-backdrop" on:mousedown=move |ev: MouseEvent| { ev.prevent_default(); panel.set(Panel::None); }
+                        on:contextmenu=move |ev: MouseEvent| { ev.prevent_default(); panel.set(Panel::None); }></div>
+                    <div class="menu prose-menu" style=format!("left: {x}px; top: {y}px")>
+                        {title.map(|t| view! { <div class="menu-title">{t}</div> })}
+                        {items.into_iter().map(|it| {
+                            let (label, sub, disabled): (String, Option<String>, bool) = match &it {
+                                MenuItem::Pill(c) => (format!("Make pill: {} \u{b7} {}", c.entry_name, c.form_label()), Some(c.kind.clone()), false),
+                                MenuItem::Dismiss(_) => ("Not a pill (this session)".into(), None, false),
+                                MenuItem::Suggest(w) => (w.clone(), None, false),
+                                MenuItem::NoSuggestions => ("No suggestions".into(), None, true),
+                                MenuItem::Ignore(_) => ("Ignore (this session)".into(), None, false),
+                                MenuItem::MakePill => ("Make a pill\u{2026}".into(), Some("Ctrl+K".into()), false),
+                                MenuItem::Variable => ("Turn into variable\u{2026}".into(), None, false),
+                                MenuItem::Noun => ("Turn into a person, place or thing\u{2026}".into(), None, false),
+                                MenuItem::Cut => ("Cut".into(), None, sel_range.with_value(|r| r.is_none())),
+                                MenuItem::Copy => ("Copy".into(), None, sel_range.with_value(|r| r.is_none())),
+                                MenuItem::Paste => ("Paste".into(), Some("as plain text".into()), false),
+                                MenuItem::Sep => return view! { <div class="menu-sep"></div> }.into_any(),
+                            };
+                            let bold = matches!(it, MenuItem::Suggest(_) | MenuItem::Pill(_));
+                            view! {
+                                <button type="button" disabled=disabled class:menu-strong=bold
+                                    on:mousedown=move |ev: MouseEvent| { ev.prevent_default(); run_item(it.clone()); }>
+                                    <span>{label}</span>
+                                    {sub.map(|s| view! { <span class="menu-desc">{s}</span> })}
+                                </button>
+                            }.into_any()
+                        }).collect_view()}
+                    </div>
+                }.into_any(),
+                Panel::Variable { value } => view! {
+                    <div node_ref=panel_el class="insert-panel" on:keydown=move |ev: KeyboardEvent| {
+                        if ev.key() == "Enter" { ev.prevent_default(); ev.stop_propagation(); save_variable(); }
+                        if ev.key() == "Escape" { ev.stop_propagation(); panel.set(Panel::None); }
+                    }>
+                        <span class="insert-title">"Turn into variable"</span>
+                        <label class="pill-field">"Name"
+                            <input type="text" placeholder="bridgeToll" prop:value=move || var_name.get()
+                                on:input=move |ev| { var_name.set(event_target_value(&ev)); form_err.set(None); }/>
+                        </label>
+                        <span class="hint">"Value: \u{201c}" {value.trim().to_string()} "\u{201d}. The text will refer to it by name; letters only."</span>
+                        {move || form_err.get().map(|e| view! { <span class="hint bad">{e}</span> })}
+                        <button type="button" class="small primary" on:click=move |_| save_variable()>"Make variable"</button>
+                        <button type="button" class="small" on:click=move |_| panel.set(Panel::None)>"Cancel"</button>
+                    </div>
+                }.into_any(),
+                Panel::Noun { text } => {
+                    let text2 = text.clone();
+                    view! {
+                        <div node_ref=panel_el class="insert-panel" on:keydown=move |ev: KeyboardEvent| {
+                            if ev.key() == "Enter" { ev.prevent_default(); ev.stop_propagation(); save_noun(); }
+                            if ev.key() == "Escape" { ev.stop_propagation(); panel.set(Panel::None); }
+                        }>
+                            <span class="insert-title">"Turn into a person, place or thing"</span>
+                            <label class="pill-field">"Name"
+                                <input type="text" prop:value=move || noun_name.get() on:input=move |ev| { noun_name.set(event_target_value(&ev)); form_err.set(None); }/>
+                            </label>
+                            <label class="pill-field">"Short name"
+                                <input type="text" placeholder="optional" prop:value=move || noun_short.get() on:input=move |ev| noun_short.set(event_target_value(&ev))/>
+                            </label>
+                            <label class="pill-field">"Kind"
+                                <select on:change=move |ev| noun_kind.set(event_target_value(&ev))>
+                                    {[("person", "Person"), ("place", "Place"), ("thing", "Thing"), ("", "\u{2014}")].into_iter().map(|(v, l)| view! {
+                                        <option value=v selected=move || noun_kind.get() == v>{l}</option>
+                                    }).collect_view()}
+                                </select>
+                            </label>
+                            {move || {
+                                let (n, s) = (noun_name.get(), noun_short.get());
+                                let same = (!s.trim().is_empty() && prose::norm_eq(&text2, &s)) || prose::norm_eq(&text2, &n);
+                                (!same && !n.trim().is_empty()).then(|| view! { <span class="hint">"The selection will print as \u{201c}" {n.trim().to_string()} "\u{201d}."</span> })
+                            }}
+                            {move || form_err.get().map(|e| view! { <span class="hint bad">{e}</span> })}
+                            <button type="button" class="small primary" on:click=move |_| save_noun()>"Make it"</button>
+                            <button type="button" class="small" on:click=move |_| panel.set(Panel::None)>"Cancel"</button>
+                        </div>
+                    }.into_any()
+                }
                 Panel::Tag { tag, chip, .. } => {
                     let spec = env.palette.spec(&tag);
                     view! {

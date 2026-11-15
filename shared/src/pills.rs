@@ -21,7 +21,8 @@ pub struct Candidate {
     pub form: String,
     /// The text as printed.
     pub text: String,
-    /// The entry's name, for menus ("Alecia Something").
+    /// What the entry is called, for menus: its display name, else its name ("Eamon",
+    /// whose stat block is named "Bandit").
     pub entry_name: String,
     /// The ref that prints it: `<nounRef ref="alecia" value="shortName"/>`.
     pub ref_xml: String,
@@ -58,7 +59,7 @@ pub fn candidates(ctx: &RefCtx, palette: Palette) -> Vec<Candidate> {
     for (kind, id) in &ctx.entries {
         let Some(rt) = palette.ref_tag(kind) else { continue };
         let Some(e) = index.entries.get(id) else { continue };
-        let entry_name = e.values.get("name").cloned().unwrap_or_else(|| id.clone());
+        let entry_name = ["displayName", "name"].iter().find_map(|f| e.values.get(*f).filter(|v| !v.trim().is_empty()).cloned()).unwrap_or_else(|| id.clone());
         let mut seen: Vec<&str> = Vec::new();
         for form in forms(kind) {
             let Some(text) = e.values.get(*form).map(|t| t.trim()).filter(|t| !t.is_empty()) else { continue };

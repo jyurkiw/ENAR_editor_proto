@@ -314,7 +314,8 @@ fn BlockRow(
             class:para=is_p class:dirty=dirty class:failed=failed
             class:dragging=move || drag.from.get() == Some(child())
             on:dragover=on_dragover on:drop=on_drop
-            on:focusout=move |ev: FocusEvent| if is_p.get_untracked() && !focus_stays(&ev, &el) { do_apply() }
+            // A row being removed while focused still gets focusout, after its signals are gone.
+            on:focusout=move |ev: FocusEvent| if is_p.try_get_untracked().unwrap_or(false) && !focus_stays(&ev, &el) { do_apply() }
             on:keydown=move |ev: KeyboardEvent| {
                 if !is_p.get_untracked() { return }
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }

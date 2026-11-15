@@ -12,6 +12,8 @@ thread_local! {
     /// Set once the dictionary is loaded, so boxes drawn before then get checked.
     static READY: leptos::prelude::ArcRwSignal<bool> = leptos::prelude::ArcRwSignal::new(false);
     static DICT: RefCell<Option<spellbook::Dictionary>> = const { RefCell::new(None) };
+    /// Words ignored this session.
+    static IGNORED: RefCell<std::collections::HashSet<String>> = RefCell::new(Default::default());
 }
 
 fn now() -> f64 {
@@ -64,7 +66,29 @@ pub fn ready() -> bool {
 /// Whether `word` is misspelled; false until the dictionary is loaded.
 pub fn misspelled(word: &str) -> bool {
     let w = word.replace('\u{2019}', "'");
+    if IGNORED.with(|i| i.borrow().contains(&w)) {
+        return false;
+    }
     DICT.with(|d| d.borrow().as_ref().is_some_and(|dict| !dict.check(&w)))
+}
+
+/// Stops marking `word` for the rest of the session.
+pub fn ignore(word: &str) {
+    IGNORED.with(|i| i.borrow_mut().insert(word.replace('\u{2019}', "'")));
+    crate::hints::bump();
+}
+
+/// Up to five spellings the dictionary suggests for `word`.
+pub fn suggest(word: &str) -> Vec<String> {
+    let w = word.replace('\u{2019}', "'");
+    DICT.with(|d| {
+        let mut out = Vec::new();
+        if let Some(dict) = d.borrow().as_ref() {
+            dict.suggest(&w, &mut out);
+        }
+        out.truncate(5);
+        out
+    })
 }
 
 /// The words of `text` worth checking: (byte start, byte end). Letters and inner

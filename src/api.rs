@@ -33,6 +33,11 @@ struct PathArg<'a> {
     path: &'a str,
 }
 
+/// The clipboard's text (for the prose menu's Paste).
+pub async fn clipboard_text() -> Result<String, AppError> {
+    invoke("plugin:clipboard-manager|read_text", &NoArgs {}).await
+}
+
 pub async fn last_project() -> Option<String> {
     invoke("last_project", &NoArgs {}).await.ok().flatten()
 }

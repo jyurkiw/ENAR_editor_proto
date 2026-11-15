@@ -187,6 +187,7 @@ async fn pick_folder(title: String, start: Option<String>, app: AppHandle) -> Op
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let cache = app.path().app_cache_dir()?;
             let config = app.path().app_config_dir()?;

@@ -211,6 +211,50 @@ on where you click:
   Copy can use `execCommand`.
 - Reuse the menu and backdrop styles from `files.rs::ContextMenu`.
 
+**Results (2026-11-14): done**, except that offering the global replace after an entry is
+added moves to phase 4 along with the replace itself.
+
+- **The menu:** right-clicking a prose box opens our own menu. It uses the existing `.menu`
+  styles and is kept on screen. It finds what was clicked by testing the box's own marks
+  against the point. It shows:
+  - **On a blue underline:** "Make pill: {entry} · {form}" for each candidate, with the
+    entry's display name, so "Eamon", not "Bandit". Then "Not a pill (this session)".
+  - **On a red underline:** up to five suggestions, or "No suggestions", then
+    "Ignore (this session)". "Add to project words" comes in phase 5.
+  - **Always:** "Make a pill…" (the Ctrl+K generator) and Cut, Copy and Paste.
+  - **With a chip-free selection:** "Turn into variable…" and "Turn into a person, place or
+    thing…", each only in files whose prose has that ref (variables wherever `dataRef`
+    exists, nouns in supplements).
+- **Turn into variable…:**
+  - suggests a camelCase name from the value ("old kennel" becomes `oldKennel`);
+  - refuses anything but letters, or a name already in use;
+  - adds `<data id value>` and puts a `dataRef` in place of the selection.
+- **Turn into a person, place or thing…:** has Name (the selection to start with), Short name
+  and Kind fields.
+  - The id is a fresh slug of the name.
+  - The pill prints the short name if the selection is the short name, and the name otherwise.
+  - The form warns when the selection would print differently ("The selection will print as
+    'The Old Kennel'").
+  - Spaces around the selection stay outside the pill.
+- **Paste** reads the clipboard through `tauri-plugin-clipboard-manager` (permission
+  `clipboard-manager:allow-read-text`) and pastes **plain text**. The WebView's own clipboard
+  API needs a permission prompt. Ctrl+V still does a native paste, which keeps any copied
+  chips. **Cut and Copy** use `execCommand`.
+- **Fixed in passing:** a paragraph row removed while it had focus panicked when its
+  `focusout` fired after its signals were gone (`block_form.rs`). It now checks with
+  `try_get_untracked`.
+- **Checked in the dev app** on the compiler test, which was restored from git afterwards:
+  - **Make pill:** on "Garrick" it inserted `<nounRef ref="garrick" value="shortName"/>`.
+  - **Yeenoghu:** offered "Enough", and Ignore removed its red underline.
+  - **Not a pill:** on "Garrick", it removed the underline from every "Garrick" in the file.
+  - **Variable:** "old kennel" suggested `oldKennel`, refused `kennel2` (letters only), and
+    with `kennel` it added `<data id="kennel" value="old kennel"/>` plus a `dataRef`.
+  - **Noun:** " kennel " (with its spaces), named "The Old Kennel" with short name "kennel"
+    and kind place, added the noun and printed `value="shortName"` between the kept spaces.
+    Once the index refreshed, the chip read "kennel" and the file's other "kennel"s turned
+    blue.
+  - **Paste:** inserted the clipboard's text.
+
 ### Phase 4: the global replace (about a day)
 
 This is the part that has to be safe.
