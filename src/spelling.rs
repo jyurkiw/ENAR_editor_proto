@@ -1,7 +1,15 @@
 //! Spellcheck: an en_US Hunspell dictionary (SCOWL), loaded in the background and
 //! checked with `spellbook`. [`crate::hints`] draws what it finds.
+//!
+//! Besides the dictionary, a word is known when it's in the project word list
+//! (`enigma-words.txt`) or ignored this session (exactly, or a capitalised form of a
+//! lowercase word), or in a library name (the SRD and project spells, monsters and
+//! items, and the names entries give them) or a name of one of the file's own entries
+//! (in any case, and plural: "gnolls" from "Gnoll"). "Krugga's" is known when "Krugga"
+//! is.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 
 use leptos::logging::log;
 use wasm_bindgen::prelude::*;
@@ -13,7 +21,11 @@ thread_local! {
     static READY: leptos::prelude::ArcRwSignal<bool> = leptos::prelude::ArcRwSignal::new(false);
     static DICT: RefCell<Option<spellbook::Dictionary>> = const { RefCell::new(None) };
     /// Words ignored this session.
-    static IGNORED: RefCell<std::collections::HashSet<String>> = RefCell::new(Default::default());
+    static IGNORED: RefCell<HashSet<String>> = RefCell::new(Default::default());
+    /// The project word list.
+    static PROJECT: RefCell<HashSet<String>> = RefCell::new(Default::default());
+    /// The words of every library name.
+    static LIBRARY: RefCell<HashSet<String>> = RefCell::new(Default::default());
 }
 
 fn now() -> f64 {
@@ -48,10 +60,6 @@ pub fn start() {
                 log!("spelling: fetched in {:.0} ms, parsed in {:.0} ms", t1 - t0, t2 - t1);
                 DICT.with(|x| *x.borrow_mut() = Some(d));
                 READY.with(|r| leptos::prelude::Set::set(r, true));
-                // Spike: a console probe, `__spellProbe("word")`.
-                let f = Closure::<dyn Fn(String) -> String>::new(|w: String| spelling_probe(&w));
-                let _ = js_sys::Reflect::set(&js_sys::global(), &"__spellProbe".into(), f.as_ref());
-                f.forget();
             }
             Err(e) => log!("spelling: dictionary didn't parse: {e}"),
         }
@@ -63,13 +71,50 @@ pub fn ready() -> bool {
     READY.with(|r| leptos::prelude::Get::get(r))
 }
 
-/// Whether `word` is misspelled; false until the dictionary is loaded.
-pub fn misspelled(word: &str) -> bool {
+/// The words of names, lowercased, for the name sets (library and entry names).
+pub fn words_of<'a>(texts: impl IntoIterator<Item = &'a str>) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for t in texts {
+        for (s, e) in words(t) {
+            out.insert(t[s..e].replace('\u{2019}', "'").to_lowercase());
+        }
+    }
+    out
+}
+
+/// Replaces the project word list.
+pub fn set_project_words(words: Vec<String>) {
+    PROJECT.with(|p| *p.borrow_mut() = words.into_iter().collect());
+    crate::hints::bump();
+}
+
+/// Replaces the library names' words.
+pub fn set_library_words(words: HashSet<String>) {
+    let same = LIBRARY.with(|l| *l.borrow() == words);
+    if !same {
+        LIBRARY.with(|l| *l.borrow_mut() = words);
+        crate::hints::bump();
+    }
+}
+
+fn in_sets(w: &str, extra: &HashSet<String>) -> bool {
+    // Word lists: exactly, or "Gutter" for a listed "gutter".
+    let listed = |set: &HashSet<String>| set.contains(w) || (w.chars().next().is_some_and(char::is_uppercase) && set.contains(&w.to_lowercase()));
+    // Names (lowercased): any case, and plurals.
+    let lw = w.to_lowercase();
+    let named = |set: &HashSet<String>| set.contains(&lw) || lw.strip_suffix('s').is_some_and(|b| set.contains(b));
+    named(extra) || LIBRARY.with(|s| named(&s.borrow())) || IGNORED.with(|s| listed(&s.borrow())) || PROJECT.with(|s| listed(&s.borrow()))
+}
+
+/// Whether `word` is misspelled: not in the dictionary nor any known-word set (`extra`
+/// being the file's own entry names); false until the dictionary is loaded.
+pub fn misspelled(word: &str, extra: &HashSet<String>) -> bool {
     let w = word.replace('\u{2019}', "'");
-    if IGNORED.with(|i| i.borrow().contains(&w)) {
+    let base = w.strip_suffix("'s").or_else(|| w.strip_suffix("'S")).unwrap_or(&w);
+    if in_sets(&w, extra) || in_sets(base, extra) {
         return false;
     }
-    DICT.with(|d| d.borrow().as_ref().is_some_and(|dict| !dict.check(&w)))
+    DICT.with(|d| d.borrow().as_ref().is_some_and(|dict| !dict.check(&w) && !dict.check(base)))
 }
 
 /// Stops marking `word` for the rest of the session.
@@ -119,21 +164,6 @@ pub fn words(text: &str) -> Vec<(usize, usize)> {
         push(s, text.len());
     }
     out
-}
-
-/// Check and suggestion timings for a word (the spike's console probe).
-pub fn spelling_probe(word: &str) -> String {
-    DICT.with(|d| {
-        let d = d.borrow();
-        let Some(dict) = d.as_ref() else { return "not loaded".to_string() };
-        let t0 = now();
-        let ok = dict.check(word);
-        let t1 = now();
-        let mut sug = Vec::new();
-        dict.suggest(word, &mut sug);
-        let t2 = now();
-        format!("{word}: ok={ok} check={:.2}ms suggest={:.1}ms {:?}", t1 - t0, t2 - t1, sug)
-    })
 }
 
 #[cfg(test)]

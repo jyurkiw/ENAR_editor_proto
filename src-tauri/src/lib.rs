@@ -3,6 +3,7 @@
 //! The open project lives here, in [`AppState`]; the frontend asks for it with
 //! `current_project` and changes it with `open_project` / `configure_project`.
 
+mod words;
 mod fsops;
 mod library;
 mod project;
@@ -128,6 +129,18 @@ async fn apply_change(path: String, expected: String, change: Change, app: AppHa
     .await
 }
 
+/// The project word list (enigma-words.txt): words the spellchecker accepts.
+#[tauri::command(rename_all = "snake_case")]
+async fn project_words(app: AppHandle) -> Result<Vec<String>, AppError> {
+    blocking(move || Ok(words::read(&app.state::<AppState>().project()?))).await
+}
+
+/// Adds a word to the project word list; returns the new list.
+#[tauri::command(rename_all = "snake_case")]
+async fn add_project_word(word: String, app: AppHandle) -> Result<Vec<String>, AppError> {
+    blocking(move || words::add(&app.state::<AppState>().project()?, &word)).await
+}
+
 /// The spells, monster stat blocks and magic items refs can be made to.
 #[tauri::command(rename_all = "snake_case")]
 async fn library(app: AppHandle) -> Result<Vec<shared::prose::LibEntry>, AppError> {
@@ -213,6 +226,8 @@ pub fn run() {
             apply_change,
             ref_index,
             library,
+            project_words,
+            add_project_word,
             find_logo,
             monster_outline,
             pick_folder

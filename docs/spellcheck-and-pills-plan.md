@@ -346,6 +346,37 @@ This is the part that has to be safe.
 - The checker skips numbers, dice notation (`2d6+3`), words in all caps, and anything
   inside chips.
 
+**Results (2026-11-15): done.**
+
+- **Project word list:** `src-tauri/src/words.rs` reads and adds to `enigma-words.txt` in
+  the project root (`ProjectInfo::root`, where `enigma-project.toml` is).
+  - New commands: `project_words` and `add_project_word`.
+  - A new file starts with a two-line comment header. A hand-written header is kept.
+  - Words are kept sorted (ignoring case) without duplicates, and anything that isn't a
+    single word is refused.
+  - Two unit tests.
+- **Known words** (`spelling.rs`), besides the dictionary:
+  - **Exactly, or a capitalised form of a listed lowercase word:** the project word list and
+    words ignored this session.
+  - **In any case, and plural** ("gnolls" from "Gnoll"): the words of every library name and
+    its aliases, loaded when the project opens, and the names of the file's own entries,
+    passed in on each re-mark.
+  - "Krugga's" counts as known when "Krugga" is.
+- **"Add to project words"** appears in a misspelling's menu, labelled `enigma-words.txt`.
+  It writes the file and re-marks every box straight away.
+- **Removed the spike's** `__spellProbe` console hook.
+- **Checked in the dev app:** across the same 25 test-adventure sections as phase 0, the red
+  words went from 43 to 29.
+  - **No longer flagged:** entry names (Krugga, Corvin, Ashvyrrix…), library words (gnoll,
+    gnolls, spellbook) and Yeenoghu, once it was added.
+  - **Still flagged:** people and places that aren't entries (Hillsfort, Yarrek, Durgan,
+    Willem…) and terms (NPC, DM, handaxe, brewhouse, roleplaying). That's what the word
+    list is for.
+  - "Add to project words" on Yeenoghu created the file, and the word stayed known after a
+    reload. The test file was deleted afterwards.
+- **Not done:** the list isn't re-read when `enigma-words.txt` changes on disk (a git pull,
+  say) until the project is opened again.
+
 ### Phase 6: verification (about half a day)
 
 - `cargo test --workspace`, the ignored real-repo tests, and

@@ -56,6 +56,23 @@ fn App() -> impl IntoView {
             app.open_project(p);
         }
     });
+    // The spellchecker's known words: the project word list, and every library name.
+    Effect::new(move |_| {
+        if app.project.with(|p| p.is_some()) {
+            spawn_local(async move {
+                spelling::set_project_words(api::project_words().await.unwrap_or_default());
+                let lib = api::library().await.map_err(|e| e.message);
+                app.library.set(Some(lib));
+            });
+        }
+    });
+    Effect::new(move |_| {
+        app.library.with(|l| {
+            if let Some(Ok(lib)) = l {
+                spelling::set_library_words(spelling::words_of(lib.iter().flat_map(|e| std::iter::once(e.name.as_str()).chain(e.aliases.iter().map(|(_, t)| t.as_str())))));
+            }
+        })
+    });
     view! {
         <div class="app">
             <Toolbar/>

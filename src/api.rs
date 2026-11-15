@@ -84,6 +84,20 @@ pub async fn create_magic_item_file(req: &NewMagicItem) -> Result<String, AppErr
     invoke("create_magic_item_file", &A { req }).await
 }
 
+/// The project word list.
+pub async fn project_words() -> Result<Vec<String>, AppError> {
+    invoke("project_words", &NoArgs {}).await
+}
+
+/// Adds a word to the project word list; the new list.
+pub async fn add_project_word(word: &str) -> Result<Vec<String>, AppError> {
+    #[derive(Serialize)]
+    struct A<'a> {
+        word: &'a str,
+    }
+    invoke("add_project_word", &A { word }).await
+}
+
 pub async fn library() -> Result<Vec<shared::prose::LibEntry>, AppError> {
     invoke("library", &NoArgs {}).await
 }

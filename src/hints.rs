@@ -221,6 +221,8 @@ fn runs(div: &web_sys::HtmlElement) -> Vec<Run> {
 pub fn mark(div: &web_sys::HtmlElement, m: &mut BoxMarks, file: &str, cands: &[Candidate]) {
     clear(m);
     let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
+    // The file's own entry names are known words.
+    let names = crate::spelling::words_of(cands.iter().flat_map(|c| [c.text.as_str(), c.entry_name.as_str()]));
     for run in runs(div) {
         let found: Vec<pills::Match> = if run.pillable {
             pills::find(&run.text, cands).into_iter().filter(|x| !is_dismissed(file, &run.text[x.start..x.end])).collect()
@@ -233,7 +235,7 @@ pub fn mark(div: &web_sys::HtmlElement, m: &mut BoxMarks, file: &str, cands: &[C
             }
         }
         for (s, e) in crate::spelling::words(&run.text) {
-            if found.iter().any(|x| s < x.end && x.start < e) || !crate::spelling::misspelled(&run.text[s..e]) {
+            if found.iter().any(|x| s < x.end && x.start < e) || !crate::spelling::misspelled(&run.text[s..e], &names) {
                 continue;
             }
             if let Some(r) = run.range(&doc, s, e) {

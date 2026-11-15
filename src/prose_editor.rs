@@ -229,6 +229,8 @@ enum MenuItem {
     NoSuggestions,
     /// Stop marking this word for the session.
     Ignore(String),
+    /// Add this word to the project word list.
+    AddWord(String),
     /// The ref generator, on the selection (as Ctrl+K).
     MakePill,
     Variable,
@@ -742,6 +744,7 @@ pub fn ChipEditor(
                     items.push(MenuItem::NoSuggestions);
                 }
                 items.extend(sug.into_iter().map(MenuItem::Suggest));
+                items.push(MenuItem::AddWord(word.clone()));
                 items.push(MenuItem::Ignore(word));
                 items.push(MenuItem::Sep);
             }
@@ -790,6 +793,14 @@ pub fn ChipEditor(
                 }
             }
             MenuItem::Ignore(w) => crate::spelling::ignore(&w),
+            MenuItem::AddWord(w) => {
+                spawn_local(async move {
+                    match crate::api::add_project_word(&w.replace('\u{2019}', "'")).await {
+                        Ok(list) => crate::spelling::set_project_words(list),
+                        Err(e) => ctx().show_error(e),
+                    }
+                });
+            }
             MenuItem::MakePill => open_gen(),
             MenuItem::Variable => {
                 let Some(r) = selected() else { return };
@@ -1060,6 +1071,7 @@ pub fn ChipEditor(
                                 MenuItem::Suggest(w) => (w.clone(), None, false),
                                 MenuItem::NoSuggestions => ("No suggestions".into(), None, true),
                                 MenuItem::Ignore(_) => ("Ignore (this session)".into(), None, false),
+                                MenuItem::AddWord(_) => ("Add to project words".into(), Some("enigma-words.txt".into()), false),
                                 MenuItem::MakePill => ("Make a pill\u{2026}".into(), Some("Ctrl+K".into()), false),
                                 MenuItem::Variable => ("Turn into variable\u{2026}".into(), None, false),
                                 MenuItem::Noun => ("Turn into a person, place or thing\u{2026}".into(), None, false),
