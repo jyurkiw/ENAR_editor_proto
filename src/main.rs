@@ -15,6 +15,7 @@ mod reference_form;
 mod files;
 mod item_form;
 mod spell_form;
+mod spelling;
 mod license_form;
 mod supplement_parts;
 mod section_el_form;
@@ -40,6 +41,7 @@ use viewer::Viewer;
 
 fn main() {
     console_error_panic_hook::set_once();
+    spelling::start();
     leptos::mount::mount_to_body(App);
 }
 

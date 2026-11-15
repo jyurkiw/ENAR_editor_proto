@@ -463,6 +463,22 @@ pub fn ChipEditor(
         })
     };
     let tag_text = RwSignal::new(String::new());
+    // This box's misspelling ranges, in the page's "spelling" highlight.
+    let marks = StoredValue::new_local(Vec::<web_sys::Range>::new());
+    let check = move || {
+        if let Some(div) = el.get_untracked() {
+            marks.update_value(|m| crate::spelling::mark(&div, m));
+        }
+    };
+    // Check once the dictionary arrives; drop this box's marks when it goes away.
+    Effect::new(move |_| {
+        if crate::spelling::ready() {
+            check();
+        }
+    });
+    on_cleanup(move || {
+        marks.try_update_value(|m| crate::spelling::clear(m));
+    });
 
     // Draw the box when its value changes from outside (or the names it shows do).
     Effect::new(move |_| {
@@ -479,6 +495,7 @@ pub fn ChipEditor(
             Ok(h) => {
                 bad.set(None);
                 div.set_inner_html(&h);
+                check();
             }
             Err(e) => bad.set(Some(e)),
         }
@@ -663,9 +680,9 @@ pub fn ChipEditor(
     view! {
         <div class="chip-editor" class:single=single>
             <div class="chip-row">
-                <div node_ref=el id=move || { let i = id.get(); (!i.is_empty()).then_some(i) } class="chip-box" class:single=single contenteditable="true" spellcheck="true" data-placeholder=placeholder
+                <div node_ref=el id=move || { let i = id.get(); (!i.is_empty()).then_some(i) } class="chip-box" class:single=single contenteditable="true" spellcheck="false" data-placeholder=placeholder
                     class:hidden=move || bad.with(|b| b.is_some())
-                    on:input=move |_| emit() on:keydown=on_key on:click=on_click></div>
+                    on:input=move |_| { emit(); check(); } on:keydown=on_key on:click=on_click></div>
                 <button type="button" class="icon-btn chip-add" title="Insert a ref or tag (Ctrl+K)" on:mousedown=move |ev: MouseEvent| {
                     // Keep the caret where it was.
                     ev.prevent_default();
