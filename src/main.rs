@@ -16,6 +16,7 @@ mod files;
 mod item_form;
 mod spell_form;
 mod spelling;
+mod hints;
 mod license_form;
 mod supplement_parts;
 mod section_el_form;

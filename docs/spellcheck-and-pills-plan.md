@@ -153,6 +153,34 @@ This is pure Rust with no UI.
 - Keep session dismissals in the app context as a set of
   `(file, entry id, matched text)`. Dismissed matches aren't added.
 
+**Results (2026-11-14): done.** `src/hints.rs` holds the shared text walk and both
+highlights. `src/spelling.rs` is now just the dictionary.
+
+- **Which text is checked:** a box's text is split into runs. A run breaks at chips and at
+  line breaks (`br`, `div`, `p`), but runs through bold and italics. So "Krugga
+  <b>Redhide</b>" is one mention, while a name can never cross a chip.
+- **Per box:** each box keeps its own `BoxMarks`: its misspelling ranges, plus a `PillMark`
+  for each mention (its range, its text and its candidates, for phase 3's menu). A box
+  re-marks itself when:
+  - it's redrawn or edited;
+  - the dictionary loads;
+  - the file's candidates change (`ProseEnv::pills`, a memo, so an edit that doesn't change
+    any names doesn't trigger it);
+  - something is dismissed.
+
+  It clears its marks when it's unmounted.
+- **Misspellings vs mentions:** a word inside a mention is never marked misspelled, so "Corvin
+  Thistlewood" is blue only, not red.
+- **Dismissals:** `hints::dismiss(file, text)` keeps them for the session, keyed by the
+  normalized text in that file. It's not called yet; phase 3's "Not a pill" item will call it.
+- **Checked in the dev app** on "A Day of Mourning" in the compiler test:
+  - the two existing mentions of "Garrick" get blue underlines, but the "Garrick Moss" chip
+    doesn't;
+  - typing "Then Krugga and Corvin Thistlewood met Garrick." underlines all three names;
+  - re-marking on each keystroke takes about 2 ms in a debug build;
+  - a name split by bold is matched;
+  - after Revert, only the original mentions remain.
+
 ### Phase 3: the context menu (about a day)
 
 Right-clicking in a chip box opens our own menu instead of WebView2's. What it lists depends

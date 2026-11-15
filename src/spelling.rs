@@ -1,46 +1,17 @@
-//! Spellcheck for prose boxes (phase 0 spike): an en_US Hunspell dictionary checked with
-//! `spellbook`, misspellings drawn with the CSS Custom Highlight API so the box's DOM is
-//! never touched.
+//! Spellcheck: an en_US Hunspell dictionary (SCOWL), loaded in the background and
+//! checked with `spellbook`. [`crate::hints`] draws what it finds.
 
 use std::cell::RefCell;
 
 use leptos::logging::log;
-use wasm_bindgen_futures::spawn_local;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-
-#[wasm_bindgen]
-extern "C" {
-    /// A CSS custom highlight: a set of ranges styled by `::highlight(name)`.
-    #[wasm_bindgen(js_name = Highlight)]
-    pub type JsHighlight;
-    #[wasm_bindgen(constructor, js_class = "Highlight")]
-    fn new() -> JsHighlight;
-    #[wasm_bindgen(method, js_class = "Highlight")]
-    fn add(this: &JsHighlight, r: &web_sys::Range);
-    #[wasm_bindgen(method, js_class = "Highlight")]
-    fn delete(this: &JsHighlight, r: &web_sys::Range) -> bool;
-    #[wasm_bindgen(method, getter, js_class = "Highlight")]
-    fn size(this: &JsHighlight) -> u32;
-
-    /// `CSS.highlights`, the page's registry of named highlights.
-    type HighlightRegistry;
-    #[wasm_bindgen(method)]
-    fn set(this: &HighlightRegistry, name: &str, h: &JsHighlight);
-}
-
-/// `CSS.highlights` (a property, so it's read rather than called).
-fn highlights() -> Option<HighlightRegistry> {
-    let css = js_sys::Reflect::get(&js_sys::global(), &"CSS".into()).ok()?;
-    let reg = js_sys::Reflect::get(&css, &"highlights".into()).ok()?;
-    (!reg.is_undefined()).then(|| reg.unchecked_into())
-}
+use wasm_bindgen_futures::spawn_local;
 
 thread_local! {
     /// Set once the dictionary is loaded, so boxes drawn before then get checked.
     static READY: leptos::prelude::ArcRwSignal<bool> = leptos::prelude::ArcRwSignal::new(false);
     static DICT: RefCell<Option<spellbook::Dictionary>> = const { RefCell::new(None) };
-    static SPELLING: RefCell<Option<JsHighlight>> = const { RefCell::new(None) };
 }
 
 fn now() -> f64 {
@@ -90,25 +61,10 @@ pub fn ready() -> bool {
     READY.with(|r| leptos::prelude::Get::get(r))
 }
 
-/// Drops a box's ranges from the highlight (when it re-checks, or goes away).
-pub fn clear(old: &mut Vec<web_sys::Range>) {
-    if let Some(h) = registry_highlight() {
-        for r in old.drain(..) {
-            h.delete(&r);
-        }
-    }
-}
-
-fn registry_highlight() -> Option<JsHighlight> {
-    SPELLING.with(|s| {
-        let mut s = s.borrow_mut();
-        if s.is_none() {
-            let h = JsHighlight::new();
-            highlights()?.set("spelling", &h);
-            *s = Some(h);
-        }
-        s.as_ref().map(|h| h.unchecked_ref::<JsValue>().clone().unchecked_into())
-    })
+/// Whether `word` is misspelled; false until the dictionary is loaded.
+pub fn misspelled(word: &str) -> bool {
+    let w = word.replace('\u{2019}', "'");
+    DICT.with(|d| d.borrow().as_ref().is_some_and(|dict| !dict.check(&w)))
 }
 
 /// The words of `text` worth checking: (byte start, byte end). Letters and inner
@@ -141,61 +97,7 @@ pub fn words(text: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// Byte offset in `s` to the UTF-16 offset a DOM `Range` wants.
-fn utf16_at(s: &str, byte: usize) -> u32 {
-    s[..byte].encode_utf16().count() as u32
-}
-
-/// Re-checks one prose box: drops its old ranges from the highlight and adds a range for
-/// each misspelled word in its text (chips skipped). `old` holds the box's ranges.
-pub fn mark(div: &web_sys::HtmlElement, old: &mut Vec<web_sys::Range>) {
-    clear(old);
-    let Some(h) = registry_highlight() else { return };
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
-    let t0 = now();
-    let mut checked = 0;
-    DICT.with(|d| {
-        let d = d.borrow();
-        let Some(dict) = d.as_ref() else { return };
-        // Text nodes outside chips, in order.
-        let mut stack: Vec<web_sys::Node> = vec![div.clone().into()];
-        while let Some(n) = stack.pop() {
-            if n.node_type() == web_sys::Node::TEXT_NODE {
-                let text = n.text_content().unwrap_or_default();
-                for (s, e) in words(&text) {
-                    checked += 1;
-                    let w = text[s..e].replace('\u{2019}', "'");
-                    if dict.check(&w) {
-                        continue;
-                    }
-                    let Ok(r) = doc.create_range() else { continue };
-                    if r.set_start(&n, utf16_at(&text, s)).is_ok() && r.set_end(&n, utf16_at(&text, e)).is_ok() {
-                        h.add(&r);
-                        old.push(r);
-                    }
-                }
-                continue;
-            }
-            if let Some(el) = n.dyn_ref::<web_sys::Element>() {
-                if el.class_list().contains("chip-tag") {
-                    continue;
-                }
-            }
-            let kids = n.child_nodes();
-            for i in (0..kids.length()).rev() {
-                if let Some(k) = kids.item(i) {
-                    stack.push(k);
-                }
-            }
-        }
-    });
-    let ms = now() - t0;
-    if ms > 2.0 {
-        log!("spelling: {checked} words checked in {ms:.1} ms");
-    }
-}
-
-/// Suggestions for a word (for the spike's timing check, from the console).
+/// Check and suggestion timings for a word (the spike's console probe).
 pub fn spelling_probe(word: &str) -> String {
     DICT.with(|d| {
         let d = d.borrow();

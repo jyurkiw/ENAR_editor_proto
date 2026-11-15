@@ -40,6 +40,8 @@ pub struct ProseEnv {
     pub own: Memo<Vec<(String, String, String)>>,
     /// What `<shortNounRef/>` prints.
     pub noun: Memo<String>,
+    /// The names of the file's own entries, for the blue "make this a pill" underlines.
+    pub pills: Memo<Vec<shared::pills::Candidate>>,
 }
 
 /// Gives the page's prose boxes their environment.
@@ -57,7 +59,8 @@ pub fn provide_env(tab: DocTab, palette: Palette, own: Option<Memo<Vec<(String, 
             String::new()
         }
     });
-    let env = ProseEnv { tab, palette, doc, own, noun };
+    let pills = Memo::new(move |_| shared::pills::candidates(&doc.get(), palette));
+    let env = ProseEnv { tab, palette, doc, own, noun, pills };
     provide_context(env);
     env
 }
@@ -463,21 +466,24 @@ pub fn ChipEditor(
         })
     };
     let tag_text = RwSignal::new(String::new());
-    // This box's misspelling ranges, in the page's "spelling" highlight.
-    let marks = StoredValue::new_local(Vec::<web_sys::Range>::new());
+    // This box's underlines (pillable mentions, misspellings) in the page's highlights.
+    let marks = StoredValue::new_local(crate::hints::BoxMarks::default());
     let check = move || {
         if let Some(div) = el.get_untracked() {
-            marks.update_value(|m| crate::spelling::mark(&div, m));
+            let file = env.tab.doc_untracked().path.clone();
+            env.pills.with_untracked(|c| marks.update_value(|m| crate::hints::mark(&div, m, &file, c)));
         }
     };
-    // Check once the dictionary arrives; drop this box's marks when it goes away.
+    // Re-mark when the dictionary arrives, the file's entries change or a mention is
+    // dismissed; drop this box's marks when it goes away.
     Effect::new(move |_| {
-        if crate::spelling::ready() {
-            check();
-        }
+        crate::spelling::ready();
+        env.pills.track();
+        crate::hints::track_dismissals();
+        check();
     });
     on_cleanup(move || {
-        marks.try_update_value(|m| crate::spelling::clear(m));
+        marks.try_update_value(|m| crate::hints::clear(m));
     });
 
     // Draw the box when its value changes from outside (or the names it shows do).
