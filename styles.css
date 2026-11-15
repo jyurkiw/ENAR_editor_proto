@@ -145,6 +145,15 @@ code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); pa
 .prose-menu button.menu-strong > span:first-child { font-weight: 600; }
 .pill-field { display: inline-flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 .pill-field input, .pill-field select { font-size: 13px; }
+.pill-offer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; padding: 5px 8px; border: 1px dashed #2f7fd8; border-radius: 4px; font-size: 12px; }
+.modal.pill-all { width: min(720px, calc(100vw - 32px)); }
+.pill-all-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pill-all-list { max-height: 55vh; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+.pill-all-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.pill-all-row:last-child { border-bottom: none; }
+.pill-all-text { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.pill-all-place { color: var(--muted); font-size: 11px; }
+.pill-all-row mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 2px; }
 
 /* Modals */
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(20,15,10,.45); display: flex; align-items: center; justify-content: center; }

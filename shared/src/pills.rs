@@ -179,6 +179,322 @@ pub fn find(text: &str, cands: &[Candidate]) -> Vec<Match> {
     out
 }
 
+// ------------------------------------------------------------------ the whole file
+
+/// One mention in a file's source, for the "pill every mention" list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Occurrence {
+    /// Byte range in the source (as written, so `&amp;` and all).
+    pub start: usize,
+    pub end: usize,
+    /// The text, as read ("Krugga's" for `Krugga&apos;s`).
+    pub text: String,
+    /// Indexes into the candidates.
+    pub cands: Vec<usize>,
+    /// Up to 40 characters of the surrounding text, read.
+    pub before: String,
+    pub after: String,
+    /// Where it is: the nearest section, sidebar or chapter's label.
+    pub place: String,
+}
+
+/// Text decoded from XML, with the source offset of each decoded byte (and one past).
+fn decode(raw: &str, base: usize) -> (String, Vec<usize>) {
+    let mut out = String::new();
+    let mut map = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        let rest = &raw[i..];
+        if rest.starts_with('&') {
+            if let Some(semi) = rest.find(';').filter(|s| *s <= 10) {
+                let ent = &rest[1..semi];
+                let ch = match ent {
+                    "amp" => Some('&'),
+                    "lt" => Some('<'),
+                    "gt" => Some('>'),
+                    "quot" => Some('"'),
+                    "apos" => Some('\''),
+                    _ if ent.starts_with("#x") || ent.starts_with("#X") => u32::from_str_radix(&ent[2..], 16).ok().and_then(char::from_u32),
+                    _ if ent.starts_with('#') => ent[1..].parse::<u32>().ok().and_then(char::from_u32),
+                    _ => None,
+                };
+                if let Some(c) = ch {
+                    for _ in 0..c.len_utf8() {
+                        map.push(base + i);
+                    }
+                    out.push(c);
+                    i += semi + 1;
+                    continue;
+                }
+            }
+        }
+        let c = rest.chars().next().unwrap();
+        for _ in 0..c.len_utf8() {
+            map.push(base + i);
+        }
+        out.push(c);
+        i += c.len_utf8();
+    }
+    map.push(base + raw.len());
+    (out, map)
+}
+
+/// The runs of pillable text in `source[a..b]` (a prose element's contents): text not
+/// inside any tag, broken at every tag and comment. Not even inside `<b>` or `<i>`: they
+/// hold plain text only, so a ref there isn't valid. (start, end) bytes.
+fn runs(source: &str, a: usize, b: usize) -> Vec<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut out = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut run_start = a;
+    let mut i = a;
+    let open = |stack: &Vec<String>| stack.is_empty();
+    while i < b {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        if run_start < i && open(&stack) {
+            out.push((run_start, i));
+        }
+        let rest = &source[i..b];
+        let end = if rest.starts_with("<!--") {
+            rest.find("-->").map(|e| i + e + 3)
+        } else if rest.starts_with("<![CDATA[") {
+            rest.find("]]>").map(|e| i + e + 3)
+        } else if rest.starts_with("<?") {
+            rest.find("?>").map(|e| i + e + 2)
+        } else {
+            // A tag: find its '>' outside quotes.
+            let mut q: Option<u8> = None;
+            let mut j = i + 1;
+            while j < b {
+                match (q, bytes[j]) {
+                    (None, b'"') | (None, b'\'') => q = Some(bytes[j]),
+                    (Some(c), x) if c == x => q = None,
+                    (None, b'>') => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            let tag = &source[i..(j + 1).min(b)];
+            let name: String = tag.trim_start_matches(['<', '/']).chars().take_while(|c| !c.is_whitespace() && *c != '/' && *c != '>').collect();
+            if tag.starts_with("</") {
+                if let Some(k) = stack.iter().rposition(|t| *t == name) {
+                    stack.truncate(k);
+                }
+            } else if !tag.ends_with("/>") {
+                stack.push(name);
+            }
+            Some(j + 1)
+        };
+        i = end.unwrap_or(b).min(b);
+        run_start = i;
+    }
+    if run_start < b && open(&stack) {
+        out.push((run_start, b));
+    }
+    out
+}
+
+/// Source XML as plain text: tags and comments dropped, entities read.
+fn plain(raw: &str) -> String {
+    let mut out = String::new();
+    let mut rest = raw;
+    while let Some(i) = rest.find('<') {
+        out.push_str(&rest[..i]);
+        let close = if rest[i..].starts_with("<!--") { rest[i..].find("-->").map(|e| i + e + 3) } else { rest[i..].find('>').map(|e| i + e + 1) };
+        rest = &rest[close.unwrap_or(rest.len())..];
+    }
+    out.push_str(rest);
+    decode(&out, 0).0
+}
+
+fn clip(s: &str, n: usize, from_end: bool) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= n {
+        return s.split_whitespace().collect::<Vec<_>>().join(" ");
+    }
+    let part: String = if from_end { chars[chars.len() - n..].iter().collect() } else { chars[..n].iter().collect() };
+    let part = part.split_whitespace().collect::<Vec<_>>().join(" ");
+    if from_end { format!("\u{2026}{part}") } else { format!("{part}\u{2026}") }
+}
+
+/// Every mention of a candidate in the file's prose, in file order: the text of every
+/// prose element (see [`crate::statblock::is_prose`]), outside its inline tags.
+pub fn occurrences(source: &str, cands: &[Candidate]) -> Vec<Occurrence> {
+    let Ok(parsed) = crate::xml::parse_full(source) else { return Vec::new() };
+    let nodes = &parsed.nodes;
+    let mut parent = vec![None; nodes.len()];
+    for (i, n) in nodes.iter().enumerate() {
+        for c in &n.children {
+            parent[*c] = Some(i);
+        }
+    }
+    let place = |mut i: usize| -> String {
+        while let Some(p) = parent[i] {
+            if matches!(nodes[p].tag.as_str(), "section" | "sidebar" | "chapter") {
+                return nodes[p].label.clone();
+            }
+            i = p;
+        }
+        String::new()
+    };
+    let mut out = Vec::new();
+    let mut covered = 0;
+    let mut order: Vec<usize> = (0..nodes.len()).collect();
+    order.sort_by_key(|i| nodes[*i].start);
+    for i in order {
+        let n = &nodes[i];
+        let ptag = parent[i].map(|p| nodes[p].tag.as_str()).unwrap_or("");
+        // Headings stay as written.
+        let heading = n.tag == "subtitle" || n.tag.to_lowercase().ends_with("title");
+        if n.start < covered || heading || !crate::statblock::is_prose(ptag, &n.tag) {
+            continue;
+        }
+        let Some((a, b)) = crate::edit::inner_span(source, n) else { continue };
+        covered = n.end;
+        for (s, e) in runs(source, a, b) {
+            let (text, map) = decode(&source[s..e], s);
+            for m in find(&text, cands) {
+                out.push(Occurrence {
+                    start: map[m.start],
+                    end: map[m.end],
+                    text: text[m.start..m.end].to_string(),
+                    cands: m.cands,
+                    before: clip(&plain(&source[a..map[m.start]]), 40, true),
+                    after: clip(&plain(&source[map[m.end]..b]), 40, false),
+                    place: place(i),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The mentions of the `chosen` names, found among all the file's names so the longest
+/// still wins: with "Garrick Moss" among them, picking the short name "Garrick" doesn't
+/// take the "Garrick" out of "Garrick Moss". Each comes with its index in `chosen`.
+pub fn mentions_of(source: &str, all: &[Candidate], chosen: &[Candidate]) -> Vec<(Occurrence, usize)> {
+    let mut every: Vec<Candidate> = all.to_vec();
+    for c in chosen {
+        if !every.iter().any(|e| same(e, c)) {
+            every.push(c.clone());
+        }
+    }
+    occurrences(source, &every)
+        .into_iter()
+        .filter_map(|o| {
+            let k = o.cands.iter().find_map(|i| chosen.iter().position(|c| same(c, &every[*i])))?;
+            Some((o, k))
+        })
+        .collect()
+}
+
+fn same(a: &Candidate, b: &Candidate) -> bool {
+    a.kind == b.kind && a.id == b.id && a.form == b.form && a.text == b.text
+}
+
+/// One mention made a ref: the source bytes it replaces (checked when planned).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PillEdit {
+    pub start: usize,
+    pub end: usize,
+    /// What `source[start..end]` must still be.
+    pub raw: String,
+    /// The ref that replaces it.
+    pub xml: String,
+}
+
+/// Replaces each mention with its ref; refused if the file has changed under any of them.
+pub fn plan(source: &str, edits: &[PillEdit]) -> Result<String, String> {
+    if edits.is_empty() {
+        return Err("nothing to replace".into());
+    }
+    let mut sorted: Vec<&PillEdit> = edits.iter().collect();
+    sorted.sort_by_key(|e| e.start);
+    for w in sorted.windows(2) {
+        if w[0].end > w[1].start {
+            return Err("two replacements overlap".into());
+        }
+    }
+    for e in &sorted {
+        if source.get(e.start..e.end) != Some(e.raw.as_str()) {
+            return Err("the file has changed since the list was made; open it again".into());
+        }
+    }
+    let splices: Vec<crate::edit::Splice> = sorted.iter().map(|e| crate::edit::Splice { start: e.start, end: e.end, text: e.xml.clone() }).collect();
+    crate::edit::apply(source, &splices)
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+
+    fn cand(text: &str, xml: &str) -> Candidate {
+        Candidate { kind: "noun".into(), id: "x".into(), form: "name".into(), text: text.into(), entry_name: text.into(), ref_xml: xml.into(), any_case: !text.chars().any(char::is_uppercase) }
+    }
+
+    const SRC: &str = r#"<supplement>
+    <chapter name="c"><chapterTitle>Alec Hall</chapterTitle>
+        <section name="s"><title>Alec's Home</title>
+            <p>Alec met <b>Alec</b> and <nounRef ref="a" value="name"/>; <rule name="x">Alec rule</rule> Alec&apos;s dog.<!-- Alec --></p>
+            <p>Smartalec, ALEC, Alec &amp; Co.</p>
+        </section>
+    </chapter>
+    <reference><noun id="a" name="Alec"/></reference>
+</supplement>"#;
+
+    #[test]
+    fn finds_prose_mentions_only() {
+        let c = [cand("Alec", "<nounRef ref=\"a\" value=\"name\"/>")];
+        let o = occurrences(SRC, &c);
+        let got: Vec<String> = o.iter().map(|x| format!("{}|{}", x.text, &SRC[x.start..x.end])).collect();
+        // Not in titles, attributes, <b>, the <rule>'s text, the comment, Smartalec or ALEC.
+        assert_eq!(got, ["Alec|Alec", "Alec|Alec", "Alec|Alec"], "{o:#?}");
+        // The second is Alec&apos;s: only "Alec" is replaced.
+        assert!(SRC[o[1].end..].starts_with("&apos;s dog"));
+        // Context reads through tags.
+        assert_eq!(o[0].after, "met Alec and ; Alec rule Alec's dog.");
+        assert!(!o[0].place.is_empty());
+    }
+
+    #[test]
+    fn entities_decode() {
+        let c = [cand("Alec & Co.", "<nounRef ref=\"co\" value=\"name\"/>")];
+        let o = occurrences(SRC, &c);
+        assert_eq!(o.len(), 1);
+        assert_eq!(&SRC[o[0].start..o[0].end], "Alec &amp; Co.");
+    }
+
+    #[test]
+    fn longest_still_wins_for_one_name() {
+        let src = "<supplement><chapter name=\"c\"><section name=\"s\"><p>Garrick Moss waves. Garrick nods.</p></section></chapter></supplement>";
+        let full = Candidate { form: "name".into(), ..cand("Garrick Moss", "<nounRef ref=\"g\" value=\"name\"/>") };
+        let short = Candidate { form: "shortName".into(), ..cand("Garrick", "<nounRef ref=\"g\" value=\"shortName\"/>") };
+        let m = mentions_of(src, &[full.clone(), short.clone()], std::slice::from_ref(&short));
+        assert_eq!(m.len(), 1);
+        assert!(src[m[0].0.end..].starts_with(" nods"));
+        // With both chosen, each mention gets its own form.
+        let m = mentions_of(src, &[], &[full, short]);
+        assert_eq!(m.iter().map(|(o, k)| (o.text.as_str(), *k)).collect::<Vec<_>>(), [("Garrick Moss", 0), ("Garrick", 1)]);
+    }
+
+    #[test]
+    fn plan_replaces_and_refuses_stale() {
+        let c = [cand("Alec", "<nounRef ref=\"a\" value=\"name\"/>")];
+        let o = occurrences(SRC, &c);
+        let edits: Vec<PillEdit> = o.iter().map(|x| PillEdit { start: x.start, end: x.end, raw: SRC[x.start..x.end].into(), xml: c[0].ref_xml.clone() }).collect();
+        let out = plan(SRC, &edits).unwrap();
+        assert!(out.contains(r#"<p><nounRef ref="a" value="name"/> met <b>Alec</b> and"#), "{out}");
+        assert!(out.contains(r#"<nounRef ref="a" value="name"/>&apos;s dog"#));
+        assert!(out.contains("<title>Alec's Home</title>"));
+        // Run again on the result: the old offsets no longer hold.
+        assert!(plan(&out, &edits).is_err());
+        assert!(plan(SRC, &[]).is_err());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

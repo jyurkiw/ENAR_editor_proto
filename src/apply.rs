@@ -34,6 +34,8 @@ fn pick(change: &Change, on_root: bool, d: &DocData) -> Option<usize> {
     match change {
         // A batch selects as its last change would.
         Change::Batch { changes } => pick(changes.last()?, on_root, d),
+        // Mentions made refs: the selection stays where it was.
+        Change::Pills { .. } => None,
         Change::Family { edit } => {
             let root = d.nodes.first()?;
             let kid = |c: usize| root.children.get(c).copied();
@@ -226,6 +228,7 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 saved(tab, c, card);
             }
         }
+        Change::Pills { .. } => {}
         Change::Cover { .. } => tab.cover_draft.set(None),
         Change::Chapter { edit: ChapterEdit::Update { name, .. } | ChapterEdit::Delete { name } } => {
             let name = name.clone();

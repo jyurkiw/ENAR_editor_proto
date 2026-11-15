@@ -2,7 +2,8 @@
 //! (and so its XML) is never touched:
 //!
 //! - `pillable` (blue): a mention of one of the document's own entries, which can be
-//!   turned into a ref ([`shared::pills`]).
+//!   turned into a ref ([`shared::pills`]); not inside bold or italics, which hold plain
+//!   text only.
 //! - `spelling` (red): a word the dictionary doesn't know ([`crate::spelling`]).
 //!
 //! Each box keeps its own ranges ([`BoxMarks`]) and re-marks itself after every redraw
@@ -150,9 +151,11 @@ pub fn clear(m: &mut BoxMarks) {
     m.pills.clear();
 }
 
-/// A run of text nodes with no chip or line break between them, joined.
+/// A run of text nodes with no chip, line break or formatting edge between them, joined.
 struct Run {
     text: String,
+    /// Outside `<b>`/`<i>` (which hold plain text only, so no ref can go there).
+    pillable: bool,
     /// Each node and the byte offset its text starts at in `text`.
     nodes: Vec<(web_sys::Node, usize)>,
 }
@@ -178,9 +181,9 @@ impl Run {
     }
 }
 
-/// The box's text, as runs broken at chips and line breaks.
+/// The box's text, as runs broken at chips, line breaks and formatting.
 fn runs(div: &web_sys::HtmlElement) -> Vec<Run> {
-    fn walk(n: &web_sys::Node, out: &mut Vec<Run>) {
+    fn walk(n: &web_sys::Node, out: &mut Vec<Run>, pillable: bool) {
         let kids = n.child_nodes();
         for i in 0..kids.length() {
             let Some(k) = kids.item(i) else { continue };
@@ -193,20 +196,22 @@ fn runs(div: &web_sys::HtmlElement) -> Vec<Run> {
             }
             let Some(el) = k.dyn_ref::<web_sys::Element>() else { continue };
             let tag = el.tag_name().to_ascii_lowercase();
-            let breaks = el.class_list().contains("chip-tag") || matches!(tag.as_str(), "br" | "div" | "p");
+            let chip = el.class_list().contains("chip-tag");
+            let fmt = matches!(tag.as_str(), "b" | "i" | "strong" | "em");
+            let breaks = chip || fmt || matches!(tag.as_str(), "br" | "div" | "p");
             if breaks {
-                out.push(Run { text: String::new(), nodes: Vec::new() });
+                out.push(Run { text: String::new(), pillable, nodes: Vec::new() });
             }
-            if !el.class_list().contains("chip-tag") {
-                walk(&k, out);
+            if !chip {
+                walk(&k, out, pillable && !fmt);
                 if breaks {
-                    out.push(Run { text: String::new(), nodes: Vec::new() });
+                    out.push(Run { text: String::new(), pillable, nodes: Vec::new() });
                 }
             }
         }
     }
-    let mut out = vec![Run { text: String::new(), nodes: Vec::new() }];
-    walk(div, &mut out);
+    let mut out = vec![Run { text: String::new(), pillable: true, nodes: Vec::new() }];
+    walk(div, &mut out, true);
     out.retain(|r| !r.text.trim().is_empty());
     out
 }
@@ -217,7 +222,11 @@ pub fn mark(div: &web_sys::HtmlElement, m: &mut BoxMarks, file: &str, cands: &[C
     clear(m);
     let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
     for run in runs(div) {
-        let found: Vec<pills::Match> = pills::find(&run.text, cands).into_iter().filter(|x| !is_dismissed(file, &run.text[x.start..x.end])).collect();
+        let found: Vec<pills::Match> = if run.pillable {
+            pills::find(&run.text, cands).into_iter().filter(|x| !is_dismissed(file, &run.text[x.start..x.end])).collect()
+        } else {
+            Vec::new()
+        };
         for x in &found {
             if let Some(range) = run.range(&doc, x.start, x.end) {
                 m.pills.push(PillMark { range, text: run.text[x.start..x.end].to_string(), cands: x.cands.iter().map(|i| cands[*i].clone()).collect() });

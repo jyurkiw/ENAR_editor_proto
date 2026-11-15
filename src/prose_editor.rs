@@ -222,6 +222,8 @@ enum MenuItem {
     Pill(shared::pills::Candidate),
     /// Stop offering this text as a pill for the session.
     Dismiss(String),
+    /// Review every mention of this entry form in the file.
+    PillAll(shared::pills::Candidate),
     /// Replace the misspelled word with this spelling.
     Suggest(String),
     NoSuggestions,
@@ -569,6 +571,20 @@ pub fn ChipEditor(
         })
     };
     let tag_text = RwSignal::new(String::new());
+    // After an entry is made from the selection: offer to pill its other mentions.
+    let offer = RwSignal::new(None::<(String, Vec<shared::pills::Candidate>)>);
+    let offer_count = Memo::new(move |_| {
+        offer.with(|o| o.as_ref().map(|(_, c)| env.pills.with(|all| shared::pills::mentions_of(&env.tab.doc().source, all, c).len())).unwrap_or(0))
+    });
+    let cand = |kind: &str, id: &str, form: &str, text: &str, name: &str, xml: String| shared::pills::Candidate {
+        kind: kind.into(),
+        id: id.into(),
+        form: form.into(),
+        text: text.trim().into(),
+        entry_name: name.into(),
+        ref_xml: xml,
+        any_case: !text.chars().any(char::is_uppercase),
+    };
     // This box's underlines (pillable mentions, misspellings) in the page's highlights.
     let marks = StoredValue::new_local(crate::hints::BoxMarks::default());
     let check = move || {
@@ -668,11 +684,16 @@ pub fn ChipEditor(
         let lib = ctx().library.with(|l| l.as_ref().and_then(|l| l.as_ref().ok().cloned()).unwrap_or_default());
         choices(&env, &lib, &query.get(), &hint.get())
     });
-    let choose = move |c: Choice| match c.act {
+    let choose = move |c: Choice| match c.act.clone() {
         Act::Insert(x) => insert_xml(x),
         Act::AddEntry(entry, x) => {
+            let kind = entry.tag.clone();
+            let id = entry.attrs.iter().find(|(k, _)| k == "id").map(|(_, v)| v.clone()).unwrap_or_default();
+            let form = prose::tokenize(&x).ok().and_then(|t| t.into_iter().next()).map(|t| t.attr("value").to_string()).unwrap_or_else(|| "name".into());
             apply(env.tab, Change::Reference { edit: RefEdit::Add { entry } });
-            insert_xml(x);
+            insert_xml(x.clone());
+            // Offer to pill the file's other mentions of what was picked.
+            offer.set(Some((format!("\u{201c}{}\u{201d}", c.label), vec![cand(&kind, &id, &form, &c.label, &c.label, x)])));
         }
         Act::NewTag(tag) => {
             let sel = query.get_untracked();
@@ -708,7 +729,8 @@ pub fn ChipEditor(
             Some((r, text, Some(cands))) => {
                 saved.set_value(Some(r));
                 title = Some(format!("\u{201c}{text}\u{201d}"));
-                items.extend(cands.into_iter().map(MenuItem::Pill));
+                items.extend(cands.iter().cloned().map(MenuItem::Pill));
+                items.extend(cands.into_iter().map(MenuItem::PillAll));
                 items.push(MenuItem::Dismiss(text));
                 items.push(MenuItem::Sep);
             }
@@ -755,6 +777,10 @@ pub fn ChipEditor(
             // `saved` holds the mention.
             MenuItem::Pill(c) => insert_xml(c.ref_xml),
             MenuItem::Dismiss(t) => crate::hints::dismiss(&env.tab.doc_untracked().path, &t),
+            MenuItem::PillAll(c) => {
+                let title = format!("\u{201c}{}\u{201d} \u{2192} {} \u{b7} {}", c.text, c.entry_name, c.form_label());
+                ctx().dialog.set(Some(crate::state::Dialog::PillAll { tab: env.tab.id, title, cands: vec![c], all: env.pills.get_untracked() }));
+            }
             MenuItem::Suggest(w) => {
                 if let (Some(r), Some(d)) = (saved.get_value(), document()) {
                     let _ = r.delete_contents();
@@ -816,7 +842,9 @@ pub fn ChipEditor(
         let mut entry = RefEntry::new("data");
         entry.attrs = vec![("id".into(), name.clone()), ("value".into(), value.trim().to_string())];
         apply(env.tab, Change::Reference { edit: RefEdit::Add { entry } });
-        insert_xml(format!("<dataRef ref=\"{}\" value=\"value\"/>", escape_attr(&name, '"')));
+        let xml = format!("<dataRef ref=\"{}\" value=\"value\"/>", escape_attr(&name, '"'));
+        insert_xml(xml.clone());
+        offer.set(Some((format!("\u{201c}{}\u{201d}", value.trim()), vec![cand("data", &name, "value", &value, &name, xml)])));
     };
     let save_noun = move || {
         let Panel::Noun { text } = panel.get_untracked() else { return };
@@ -839,6 +867,11 @@ pub fn ChipEditor(
         let form = if !short.is_empty() && prose::norm_eq(&text, &short) { "shortName" } else { "name" };
         apply(env.tab, Change::Reference { edit: RefEdit::Add { entry } });
         insert_xml(format!("<nounRef ref=\"{}\" value=\"{form}\"/>", escape_attr(&id, '"')));
+        let mut cs = vec![cand("noun", &id, "name", &name, &name, format!("<nounRef ref=\"{}\" value=\"name\"/>", escape_attr(&id, '"')))];
+        if !short.is_empty() && short != name {
+            cs.push(cand("noun", &id, "shortName", &short, &name, format!("<nounRef ref=\"{}\" value=\"shortName\"/>", escape_attr(&id, '"'))));
+        }
+        offer.set(Some((format!("\u{201c}{name}\u{201d}"), cs)));
     };
 
     // Click a chip: its fields.
@@ -972,6 +1005,21 @@ pub fn ChipEditor(
                     </div>
                 }
             })}
+            {move || offer.get().filter(|_| offer_count.get() > 0 && panel.with(|p| *p == Panel::None)).map(|(title, cs)| {
+                let cs = StoredValue::new(cs);
+                let t2 = title.clone();
+                view! {
+                    <div class="pill-offer">
+                        <span>"Pill the other mentions of " {title} " in this file too?"</span>
+                        <button type="button" class="small primary" on:mousedown=move |ev: MouseEvent| {
+                            ev.prevent_default();
+                            offer.set(None);
+                            ctx().dialog.set(Some(crate::state::Dialog::PillAll { tab: env.tab.id, title: t2.clone(), cands: cs.get_value(), all: env.pills.get_untracked() }));
+                        }>"Review\u{2026}"</button>
+                        <button type="button" class="small" on:mousedown=move |ev: MouseEvent| { ev.prevent_default(); offer.set(None); }>"No thanks"</button>
+                    </div>
+                }
+            })}
             {move || match panel.get() {
                 Panel::None => ().into_any(),
                 Panel::Gen => view! {
@@ -1008,6 +1056,7 @@ pub fn ChipEditor(
                             let (label, sub, disabled): (String, Option<String>, bool) = match &it {
                                 MenuItem::Pill(c) => (format!("Make pill: {} \u{b7} {}", c.entry_name, c.form_label()), Some(c.kind.clone()), false),
                                 MenuItem::Dismiss(_) => ("Not a pill (this session)".into(), None, false),
+                                MenuItem::PillAll(c) => (format!("Pill every \u{201c}{}\u{201d} in this file\u{2026}", c.text), None, false),
                                 MenuItem::Suggest(w) => (w.clone(), None, false),
                                 MenuItem::NoSuggestions => ("No suggestions".into(), None, true),
                                 MenuItem::Ignore(_) => ("Ignore (this session)".into(), None, false),

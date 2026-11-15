@@ -61,6 +61,7 @@ pub fn Dialogs() -> impl IntoView {
         Some(Dialog::NewMagicItem { parent }) => view! { <NewMagicItemDialog parent/> }.into_any(),
         Some(Dialog::NewSpell { parent }) => view! { <NewSpellDialog parent/> }.into_any(),
         Some(Dialog::NewChapter { tab }) => view! { <NewChapterDialog tab_id=tab/> }.into_any(),
+        Some(Dialog::PillAll { tab, title, cands, all }) => view! { <PillAllDialog tab_id=tab title cands all/> }.into_any(),
     }
 }
 
@@ -247,6 +248,118 @@ fn slug(title: &str) -> String {
         _ => words.iter().collect(),
     };
     words.into_iter().map(String::as_str).collect::<Vec<_>>().join("-")
+}
+
+/// "Pill every mention": each mention of the names in the file's prose, ticked, with
+/// its place and the text around it. Unapplied paragraphs are applied first, so the list
+/// (and the replace) sees them. The ticked ones become refs in one change, validated
+/// with the whole file.
+#[component]
+fn PillAllDialog(tab_id: u32, title: String, cands: Vec<shared::pills::Candidate>, all: Vec<shared::pills::Candidate>) -> impl IntoView {
+    let app = ctx();
+    let Some(tab) = app.tabs.with_untracked(|t| t.iter().find(|t| t.id == tab_id).copied()) else {
+        app.dialog.set(None);
+        return ().into_any();
+    };
+    // Apply the paragraphs still being edited (those whose drafts still fit the file).
+    let d = tab.doc_untracked();
+    let flush: Vec<Change> = tab.p_drafts.with_untracked(|drafts| {
+        drafts
+            .iter()
+            .filter(|((at, child), (orig, _))| shared::block::p_text_at(&d.source, &d.nodes, at, *child).as_deref() == Some(orig.as_str()))
+            .map(|((at, child), (_, text))| Change::Block { edit: shared::block::BlockEdit::SetP { at: at.clone(), child: *child, text: text.clone() } })
+            .collect()
+    });
+    let flushed = flush.len();
+    if !flush.is_empty() {
+        apply(tab, Change::Batch { changes: flush });
+    }
+    let cands = StoredValue::new(cands);
+    let all = StoredValue::new(all);
+    // Each mention, with the ref for its form on it.
+    let found = Memo::new(move |_| {
+        let src = tab.doc().source.clone();
+        let m = all.with_value(|a| cands.with_value(|c| shared::pills::mentions_of(&src, a, c)));
+        m.into_iter()
+            .map(|(mut o, k)| {
+                o.cands = vec![k];
+                o
+            })
+            .collect::<Vec<_>>()
+    });
+    // Unticked mentions, by their place in the file (reset when the file changes).
+    let off = RwSignal::new(std::collections::HashSet::<usize>::new());
+    Effect::new(move |_| {
+        found.track();
+        off.set(Default::default());
+    });
+    let count = move || found.with(|f| f.iter().filter(|o| !off.with(|x| x.contains(&o.start))).count());
+    let replace = move || {
+        let src = tab.doc_untracked().source.clone();
+        let edits: Vec<shared::pills::PillEdit> = found.with_untracked(|f| {
+            f.iter()
+                .filter(|o| !off.with_untracked(|x| x.contains(&o.start)))
+                .map(|o| shared::pills::PillEdit {
+                    start: o.start,
+                    end: o.end,
+                    raw: src[o.start..o.end].to_string(),
+                    xml: cands.with_value(|c| c[o.cands[0]].ref_xml.clone()),
+                })
+                .collect()
+        });
+        if edits.is_empty() {
+            return;
+        }
+        app.dialog.set(None);
+        apply(tab, Change::Pills { edits });
+    };
+    let close = move || app.dialog.set(None);
+    view! {
+        <div class="modal-backdrop" on:keydown=move |ev: leptos::ev::KeyboardEvent| if ev.key() == "Escape" { close() }>
+            <div class="modal pill-all">
+                <h2>"Pill every mention: " {title}</h2>
+                {(flushed > 0).then(|| view! { <p class="hint">{format!("Applied {flushed} paragraph{} you were editing first.", if flushed == 1 { "" } else { "s" })}</p> })}
+                {move || if tab.applying.get() {
+                    view! { <p class="hint">"Writing the file…"</p> }.into_any()
+                } else if found.with(|f| f.is_empty()) {
+                    view! { <p class="hint">"No mentions left in this file's prose."</p> }.into_any()
+                } else {
+                    view! {
+                        <div class="pill-all-tools">
+                            <button type="button" class="small" on:click=move |_| off.set(Default::default())>"Select all"</button>
+                            <button type="button" class="small" on:click=move |_| off.set(found.with_untracked(|f| f.iter().map(|o| o.start).collect()))>"Select none"</button>
+                            <span class="hint">"Headings and text inside other tags are left alone."</span>
+                        </div>
+                        <div class="pill-all-list">
+                            {found.get().into_iter().map(|o| {
+                                let start = o.start;
+                                view! {
+                                    <label class="pill-all-row">
+                                        <input type="checkbox" prop:checked=move || !off.with(|x| x.contains(&start))
+                                            on:change=move |ev| {
+                                                let on = event_target_checked(&ev);
+                                                off.update(|x| { if on { x.remove(&start); } else { x.insert(start); } });
+                                            }/>
+                                        <span class="pill-all-text">
+                                            <span class="pill-all-place">{o.place.clone()}</span>
+                                            <span>{o.before.clone()} " " <mark>{o.text.clone()}</mark> " " {o.after.clone()}</span>
+                                        </span>
+                                    </label>
+                                }
+                            }).collect_view()}
+                        </div>
+                    }.into_any()
+                }}
+                <div class="buttons">
+                    <button type="button" on:click=move |_| close()>"Cancel"</button>
+                    <button type="button" class="primary" disabled=move || count() == 0 || tab.applying.get() on:click=move |_| replace()>
+                        {move || format!("Replace {}", count())}
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+    .into_any()
 }
 
 #[component]

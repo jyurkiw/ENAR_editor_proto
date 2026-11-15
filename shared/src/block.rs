@@ -222,6 +222,14 @@ pub fn read(source: &str, nodes: &[StructNode], ci: usize) -> (Header, Vec<Block
     (header, blocks)
 }
 
+/// The text of paragraph `child` of `at`, as the editor holds it (what a draft was made
+/// from), if that child is still a paragraph.
+pub fn p_text_at(source: &str, nodes: &[StructNode], at: &Container, child: usize) -> Option<String> {
+    let ci = find(source, nodes, at)?;
+    let n = nodes[ci].children.get(child).map(|k| &nodes[*k])?;
+    (n.tag == "p").then(|| p_text(source, n))
+}
+
 fn some(s: &str) -> Option<&str> {
     (!s.trim().is_empty()).then_some(s)
 }

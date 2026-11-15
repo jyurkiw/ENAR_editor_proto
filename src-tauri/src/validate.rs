@@ -762,6 +762,62 @@ mod real {
         assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
     }
 
+    /// On a copy of the test adventure: a new noun for the town, then every mention of
+    /// it made a ref in one validated change; the count matches and the old offsets are
+    /// refused afterwards.
+    #[test]
+    #[ignore]
+    fn pill_every_mention_round_trip() {
+        use shared::pills::{occurrences, Candidate, PillEdit};
+        use shared::reference::{RefEdit, RefEntry};
+        let (p, v) = setup();
+        struct Gone(PathBuf);
+        impl Drop for Gone {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let sup = PathBuf::from(format!("{REPO}/adventures/compiler-test/zz-pills-test.xml"));
+        let _g = Gone(sup.clone());
+        std::fs::copy(format!("{REPO}/adventures/compiler-test/adventure.xml"), &sup).unwrap();
+        let path = path_str(&sup);
+        let doc = open_file(&path, &p, &v).unwrap();
+        let run = |expected: &str, change: shared::Change| apply_edit(&path, expected, &p, &v, |s| change.plan(s)).unwrap();
+        let mut entry = RefEntry::new("noun");
+        entry.attrs = vec![("id".into(), "hillsfort-town".into()), ("name".into(), "Hillsfort".into()), ("kind".into(), "place".into())];
+        let doc = match run(&doc.source, shared::Change::Reference { edit: RefEdit::Add { entry } }) {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("noun refused: {other:?}"),
+        };
+        let cand = Candidate {
+            kind: "noun".into(),
+            id: "hillsfort-town".into(),
+            form: "name".into(),
+            text: "Hillsfort".into(),
+            entry_name: "Hillsfort".into(),
+            ref_xml: r#"<nounRef ref="hillsfort-town" value="name"/>"#.into(),
+            any_case: false,
+        };
+        let found = occurrences(&doc.source, std::slice::from_ref(&cand));
+        println!("{} mentions of Hillsfort", found.len());
+        for o in found.iter().take(5) {
+            println!("  [{}] ...{} [{}] {}...", o.place, o.before, o.text, o.after);
+        }
+        assert!(found.len() >= 5, "only {}", found.len());
+        let before_refs = doc.source.matches("hillsfort-town\" value").count();
+        let edits: Vec<PillEdit> = found.iter().map(|o| PillEdit { start: o.start, end: o.end, raw: doc.source[o.start..o.end].to_string(), xml: cand.ref_xml.clone() }).collect();
+        let done = match run(&doc.source, shared::Change::Pills { edits: edits.clone() }) {
+            ApplyResult::Saved { doc } => doc,
+            other => panic!("pills refused: {other:?}"),
+        };
+        assert!(matches!(done.validation, Validation::Valid { .. }), "{:?}", done.validation);
+        assert_eq!(done.source.matches("hillsfort-town\" value").count(), before_refs + found.len());
+        // Nothing left to find, headings untouched, and the stale list is refused.
+        assert!(occurrences(&done.source, std::slice::from_ref(&cand)).is_empty());
+        assert!(done.source.contains("Hillsfort Under Fang"), "the cover's title is a heading");
+        assert!(shared::Change::Pills { edits }.plan(&done.source).is_err());
+    }
+
     /// Pill hints over every supplement: each file's own entries found in its prose.
     /// Prints what would be underlined, for judging noise; fails only if nothing is.
     #[test]

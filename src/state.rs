@@ -290,6 +290,9 @@ pub enum Dialog {
     NewSpell { parent: String },
     /// Add a chapter to the file in this tab.
     NewChapter { tab: u32 },
+    /// Every mention of the `cands` names in the tab's file, to make refs of (ticked
+    /// ones); `all` is every name in the file, so the longest match still wins.
+    PillAll { tab: u32, title: String, cands: Vec<shared::pills::Candidate>, all: Vec<shared::pills::Candidate> },
 }
 
 #[derive(Clone, Copy)]

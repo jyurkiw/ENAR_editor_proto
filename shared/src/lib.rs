@@ -371,6 +371,8 @@ pub enum Change {
     /// Several changes in order, validated and written together (a new table and the
     /// link that places it).
     Batch { changes: Vec<Change> },
+    /// Mentions made refs, anywhere in the file's prose ("pill every mention").
+    Pills { edits: Vec<pills::PillEdit> },
 }
 
 impl Change {
@@ -388,6 +390,7 @@ impl Change {
             Change::Family { edit } => family::plan(source, edit),
             Change::Stat { edit } => statblock::plan(source, edit),
             Change::Batch { changes } => changes.iter().try_fold(source.to_string(), |s, c| c.plan(&s)),
+            Change::Pills { edits } => pills::plan(source, edits),
         }
     }
 }

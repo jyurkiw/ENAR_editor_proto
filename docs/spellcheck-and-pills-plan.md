@@ -276,6 +276,53 @@ This is the part that has to be safe.
   - an ignored real-repo test that adds a noun to a copy of the test adventure, pills every
     mention, and checks that the file is valid and that the count matches.
 
+**Results (2026-11-15): done.**
+
+- **Shared code:**
+  - **`pills::occurrences(source, cands)`** walks every prose element in the whole file
+    (`is_prose`) and reads the text outside its inline tags. It decodes entities, so
+    `Alec&apos;s` matches "Alec". It skips headings (`title`, `subtitle`, `*Title`),
+    comments, attributes and the text of any inline tag. Each mention comes with its source
+    bytes, the nearest section, sidebar or chapter, and about 40 characters of the element's
+    text on each side.
+  - **`pills::mentions_of(source, all, chosen)`** finds mentions among *all* the file's names
+    and keeps the ones that are the chosen ones. So with "Garrick Moss" in the file, picking
+    the short name "Garrick" leaves "(see 'Garrick Moss' below)" alone.
+  - **`Change::Pills { edits }`** replaces each mention's exact source bytes with its ref. It
+    refuses if any of those bytes have changed ("the file has changed since the list was
+    made"), and like every change it's validated with the whole file and written as one
+    apply.
+- **Mentions in bold or italics are not pillable.** In this schema `<b>` and `<i>` are
+  `xs:string`, so a ref inside one is invalid. The real-repo test found this by tripping
+  validation. The global replace and the live blue underlines (`hints.rs`) both skip text
+  inside formatting now, though it's still spellchecked. This reverses phase 2's
+  "Krugga <b>Redhide</b> is one mention".
+- **The dialog** (`PillAllDialog`):
+  - It lists every mention with a checkbox (all ticked), its place and its context, plus
+    Select all and Select none. The button counts the ticked mentions ("Replace 19").
+  - When it opens, it first applies every paragraph draft that still fits the file (one
+    `Batch` of `SetP`), so the list and the replace include what you were typing, and it
+    says so.
+  - Drafts on other kinds of cards aren't applied first. The dialog only opens from prose
+    boxes, where paragraphs are the usual case.
+- **Ways in:**
+  - right-click a mention, then "Pill every 'Garrick' in this file…";
+  - after "Turn into variable", "Turn into a person, place or thing" or a Ctrl+K pick that
+    adds an entry, a small "Pill the other mentions of … in this file too? Review… /
+    No thanks" bar appears under the box. It shows only when there are other mentions.
+- **Tests:**
+  - **Unit tests:** cover prose-only finding, entities, refusing stale edits, and the
+    longest match winning for one chosen name.
+  - **`pill_every_mention_round_trip` (ignored):** on a copy of the test adventure, it adds a
+    "Hillsfort" noun and pills all 20 mentions in one validated change. It checks that
+    nothing is left to find, that headings are untouched, and that the old list is refused.
+- **Checked in the dev app** (the test file was restored afterwards):
+  - **"Pill every 'Garrick'":** applied the paragraph being edited, listed 18 mentions with
+    their sections, and after one was unticked replaced the rest, leaving the file valid.
+  - **Making "kennel" a noun:** showed the offer, and its review listed 19 mentions.
+  - **Why the review matters:** a short name that's an ordinary word catches things like
+    "the local kennel master's hounds", and the review is where you untick those.
+
 ### Phase 5: spellcheck (about a day)
 
 - Ship the dictionary (`en_US.aff` and `.dic`) as Trunk assets and fetch it once at startup.
