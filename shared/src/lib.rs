@@ -15,6 +15,7 @@ pub mod inline;
 pub mod item;
 pub mod list;
 pub mod names;
+pub mod pills;
 pub mod prose;
 pub mod monster;
 pub mod reference;

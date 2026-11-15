@@ -123,6 +123,24 @@ This is pure Rust with no UI.
 - Tests cover overlapping names, possessives, punctuation, Unicode, a name inside a longer
   word (no match), and one text that two entries share.
 
+**Results (2026-11-14): done.** `shared::pills`, with `candidates(ctx, palette)` and
+`find(text, cands)`, as planned.
+
+- **Unit tests (8):** cover candidates per form, the longest match winning, whole words only,
+  possessives and either apostrophe, the case rule, two entries sharing a name, Unicode and
+  byte offsets, and no partial or overlapping matches.
+- **Real-repo survey:** an ignored test, `pill_hints_in_real_supplements`, runs over every
+  supplement in the data repo. It found 95 mentions in 5 files, and checking a whole
+  adventure took about 7 ms in a debug build. Every hit is a real mention of the file's own
+  entries, for example:
+  - Garrick ×21, Krugga ×13 and Ashvyrrix ×15 in the compiler test;
+  - Carl, Maya and Aria in *Merchants on Fyier*.
+- **One case to watch:** a monster entry that only points at a stat block takes its `name`
+  from the stat block. In *Merchants on Fyier*, `eamon`'s `name` is "Bandit", so a
+  capitalised "Bandit" in that file is offered as Eamon's name. The pill would still print
+  "Bandit", so it isn't wrong, but it could surprise you. Phase 3's menu shows the entry's
+  name next to the form ("Eamon · name") so it's clear what you'd be linking.
+
 ### Phase 2: blue underlines in the chip box (about half a day)
 
 - After each edit, debounced to about 150 ms, walk the chip box's text nodes, skipping

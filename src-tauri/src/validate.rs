@@ -762,6 +762,72 @@ mod real {
         assert!(matches!(doc.validation, Validation::Valid { .. }), "{:?}", doc.validation);
     }
 
+    /// Pill hints over every supplement: each file's own entries found in its prose.
+    /// Prints what would be underlined, for judging noise; fails only if nothing is.
+    #[test]
+    #[ignore]
+    fn pill_hints_in_real_supplements() {
+        use shared::statblock::{self as sb, ROOT};
+        fn xmls(dir: &Path, out: &mut Vec<PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                let name = p.file_name().unwrap().to_string_lossy().to_string();
+                if name.starts_with('.') || name == "node_modules" || name == "target" {
+                    continue;
+                }
+                if p.is_dir() {
+                    xmls(&p, out);
+                } else if name.ends_with(".xml") {
+                    out.push(p);
+                }
+            }
+        }
+        let (p, v) = setup();
+        let mut files = Vec::new();
+        xmls(Path::new(REPO), &mut files);
+        let mut total = 0;
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            if !src.contains("<supplement") || !src.contains("<reference") {
+                continue;
+            }
+            let path = path_str(&f);
+            let Ok(doc) = open_file(&path, &p, &v) else { continue };
+            let Ok(index) = ref_index(&path, &p, &v) else {
+                println!("{}: no index", f.display());
+                continue;
+            };
+            let ctx = shared::inline::RefCtx::from_doc(&doc.source, &doc.nodes, Some(index));
+            let cands = shared::pills::candidates(&ctx, shared::prose::Palette::Supplement);
+            let Some(root) = sb::read(&doc.source, ROOT) else { continue };
+            let mut hits: std::collections::BTreeMap<String, usize> = Default::default();
+            let mut paras = 0;
+            let t0 = std::time::Instant::now();
+            for el in root.walk() {
+                if el.text.trim().is_empty() {
+                    continue;
+                }
+                let Ok(toks) = shared::prose::tokenize(&el.text) else { continue };
+                paras += 1;
+                for t in toks {
+                    if let shared::prose::Tok::Text(text) = t {
+                        for m in shared::pills::find(&text, &cands) {
+                            let what = m.cands.iter().map(|i| format!("{}.{}", cands[*i].id, cands[*i].form)).collect::<Vec<_>>().join("|");
+                            *hits.entry(format!("{:?} -> {what}", &text[m.start..m.end])).or_default() += 1;
+                        }
+                    }
+                }
+            }
+            let n: usize = hits.values().sum();
+            total += n;
+            println!("\n{}: {} candidates, {paras} text elements, {n} mentions in {:?}", f.display(), cands.len(), t0.elapsed());
+            for (k, c) in &hits {
+                println!("    {c:>3}  {k}");
+            }
+        }
+        assert!(total > 0, "no mentions found anywhere");
+    }
+
     /// Every section block in every supplement (images, figures, links, stat blocks,
     /// monster entries, item and spell blocks, skill check tables, page ends): applied
     /// unchanged, each writes nothing.
