@@ -371,7 +371,7 @@ pub fn plan(source: &str, change: &ChapterEdit) -> Result<String, String> {
                 edit::escape_attr(name, '"'),
                 edit::escape_text(title)
             );
-            let last = root.children.iter().copied().filter(|c| matches!(nodes[*c].tag.as_str(), "chapter" | "cover")).last();
+            let last = root.children.iter().copied().filter(|c| matches!(nodes[*c].tag.as_str(), "chapter" | "cover" | "contents")).last();
             let mut s = match last {
                 Some(l) => edit::insert_child(source, Anchor::After(&nodes[l]), &xml),
                 None => match root.children.first() {

@@ -163,18 +163,17 @@ async fn ref_index(path: String, app: AppHandle) -> Result<shared::inline::RefIn
     .await
 }
 
-/// The DMs Guild logo a cover would print, as the compiler finds it.
+/// A logo a cover would print, as the compiler finds it: its src, or `file` (default the
+/// DMs Guild logo's) in the supplement's folder or the nearest one above.
 #[tauri::command(rename_all = "snake_case")]
-fn find_logo(doc_path: String, src: Option<String>) -> Option<String> {
+fn find_logo(doc_path: String, src: Option<String>, file: Option<String>) -> Option<String> {
     let dir = std::path::Path::new(&doc_path).parent()?;
     if let Some(src) = src.filter(|s| !s.trim().is_empty()) {
         let p = dir.join(src);
         return p.is_file().then(|| project::path_str(&p));
     }
-    dir.ancestors()
-        .map(|d| d.join("DMsGuildProductLogoLarge.png"))
-        .find(|p| p.is_file())
-        .map(|p| project::path_str(&p))
+    let file = file.unwrap_or_else(|| "DMsGuildProductLogoLarge.png".into());
+    dir.ancestors().map(|d| d.join(&file)).find(|p| p.is_file()).map(|p| project::path_str(&p))
 }
 
 /// The monster file a supplement's `<reference><monster file>` names, as a

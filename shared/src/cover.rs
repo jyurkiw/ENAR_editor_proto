@@ -12,7 +12,7 @@ use crate::StructNode;
 
 /// The cover's children, in the order the schema requires.
 pub const ORDER: &[&str] =
-    &["headerTitle", "headerSubtitle", "coverImage", "footerChaser", "footerSubchaser", "author", "dmsguildLogo"];
+    &["headerTitle", "headerSubtitle", "coverImage", "footerChaser", "footerSubchaser", "author", "dmsguildLogo", "enigmaLogo"];
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CoverImage {
@@ -58,6 +58,18 @@ pub struct CoverModel {
     pub dmsguild_logo: bool,
     /// The logo's attributes as written, shown read-only and kept as they are.
     pub logo_attrs: Vec<(String, String)>,
+    /// The Enigma Narrative logo.
+    pub enigma_logo: bool,
+    /// Its @place: "above" (just above the DMs Guild logo), or empty / "opposite" (the
+    /// lower-right corner).
+    pub enigma_place: String,
+    /// Its attributes as written (place among them), shown read-only and kept.
+    pub enigma_attrs: Vec<(String, String)>,
+    /// `<contents><enigmaLogo/></contents>`: the logo on the contents page instead (or as
+    /// well). Not part of the cover, so it's read and kept with or without one.
+    pub contents_logo: bool,
+    /// Its attributes as written, shown read-only and kept.
+    pub contents_attrs: Vec<(String, String)>,
 }
 
 fn truthy(v: Option<String>) -> bool {
@@ -79,7 +91,22 @@ pub fn read(source: &str) -> Result<CoverModel, String> {
     Ok(read_nodes(source, &nodes))
 }
 
+/// The top-level `<contents>` node and its `<enigmaLogo>`, if there are.
+fn contents_nodes(nodes: &[StructNode]) -> (Option<usize>, Option<usize>) {
+    let Some(c) = nodes.first().and_then(|r| r.children.iter().copied().find(|c| nodes[*c].tag == "contents")) else {
+        return (None, None);
+    };
+    (Some(c), nodes[c].children.iter().copied().find(|k| nodes[*k].tag == "enigmaLogo"))
+}
+
 pub fn read_nodes(source: &str, nodes: &[StructNode]) -> CoverModel {
+    let logo = contents_nodes(nodes).1.and_then(|n| edit::start_tag(source, nodes[n].start));
+    let contents_attrs = logo.as_ref().map(|t| t.attrs.iter().map(|a| (a.name.clone(), a.value.clone())).collect()).unwrap_or_default();
+    let m = read_cover(source, nodes);
+    CoverModel { contents_logo: logo.is_some(), contents_attrs, ..m }
+}
+
+fn read_cover(source: &str, nodes: &[StructNode]) -> CoverModel {
     let Some(ci) = cover_node(nodes) else { return CoverModel::default() };
     let cover = &nodes[ci];
     let Some(tag) = edit::start_tag(source, cover.start) else { return CoverModel::default() };
@@ -94,6 +121,7 @@ pub fn read_nodes(source: &str, nodes: &[StructNode]) -> CoverModel {
     });
     let author = child(nodes, cover, "author");
     let logo = child(nodes, cover, "dmsguildLogo");
+    let enigma = child(nodes, cover, "enigmaLogo").and_then(|n| edit::start_tag(source, n.start));
     CoverModel {
         present: true,
         color: tag.value("color").unwrap_or_default(),
@@ -112,6 +140,10 @@ pub fn read_nodes(source: &str, nodes: &[StructNode]) -> CoverModel {
             .and_then(|n| edit::start_tag(source, n.start))
             .map(|t| t.attrs.iter().map(|a| (a.name.clone(), a.value.clone())).collect())
             .unwrap_or_default(),
+        enigma_logo: enigma.is_some(),
+        enigma_place: enigma.as_ref().and_then(|t| t.value("place")).unwrap_or_default(),
+        enigma_attrs: enigma.map(|t| t.attrs.iter().map(|a| (a.name.clone(), a.value.clone())).collect()).unwrap_or_default(),
+        ..Default::default()
     }
 }
 
@@ -129,6 +161,7 @@ fn wanted(m: &CoverModel, tag: &str) -> bool {
         "footerSubchaser" => some(&m.footer_subchaser).is_some(),
         "author" => some(&m.author).is_some(),
         "dmsguildLogo" => m.dmsguild_logo,
+        "enigmaLogo" => m.enigma_logo,
         _ => false,
     }
 }
@@ -160,6 +193,8 @@ fn child_xml(m: &CoverModel, tag: &str) -> String {
             format!("<author{ov}>{}</author>", edit::escape_text(&m.author))
         }
         "dmsguildLogo" => "<dmsguildLogo/>".into(),
+        "enigmaLogo" if m.enigma_place == "above" => "<enigmaLogo place=\"above\"/>".into(),
+        "enigmaLogo" => "<enigmaLogo/>".into(),
         _ => String::new(),
     }
 }
@@ -202,6 +237,44 @@ pub fn plan(source: &str, m: &CoverModel) -> Result<String, String> {
 }
 
 fn plan_splices(source: &str, nodes: &[StructNode], m: &CoverModel) -> Result<Vec<Splice>, String> {
+    let mut out = cover_splices(source, nodes, m)?;
+    out.extend(contents_splices(source, nodes, m)?);
+    Ok(out)
+}
+
+/// Adds or removes `<contents><enigmaLogo/></contents>`. A new `<contents>` goes right after
+/// the cover (or first, where there's none); removing the logo leaves `<contents>` and any
+/// comments in it.
+fn contents_splices(source: &str, nodes: &[StructNode], m: &CoverModel) -> Result<Vec<Splice>, String> {
+    let (contents, logo) = contents_nodes(nodes);
+    Ok(match (m.contents_logo, contents, logo) {
+        (false, _, Some(l)) => vec![edit::remove_element(source, &nodes[l])],
+        (true, Some(c), None) => {
+            vec![edit::insert_child(source, Anchor::Into(&nodes[c]), "<enigmaLogo/>").ok_or("can't place <enigmaLogo>")?]
+        }
+        (true, None, _) => {
+            let unit = edit::indent_unit(source);
+            let xml = format!("<contents>\n{unit}<enigmaLogo/>\n</contents>");
+            let root = &nodes[0];
+            let mut s = match (cover_node(nodes), root.children.first()) {
+                (Some(c), _) => {
+                    let mut s = edit::insert_child(source, Anchor::After(&nodes[c]), &xml).ok_or("can't place <contents>")?;
+                    s.text.insert(0, '\n');
+                    s
+                }
+                (None, Some(first)) => edit::insert_child(source, Anchor::Before(&nodes[*first]), &xml).ok_or("can't place <contents>")?,
+                (None, None) => edit::insert_child(source, Anchor::Into(root), &xml).ok_or("can't place <contents>")?,
+            };
+            if cover_node(nodes).is_none() && !root.children.is_empty() {
+                s.text.push('\n');
+            }
+            vec![s]
+        }
+        _ => vec![],
+    })
+}
+
+fn cover_splices(source: &str, nodes: &[StructNode], m: &CoverModel) -> Result<Vec<Splice>, String> {
     let old = read_nodes(source, nodes);
     let mut out = Vec::new();
 
@@ -304,9 +377,99 @@ fn edit_child(source: &str, n: &StructNode, m: &CoverModel, old: &CoverModel, ta
                 out.extend(edit::set_attr(source, n, name, value));
             }
         }
+        "enigmaLogo" => {
+            // Only @place is edited; "opposite" is the default, so it isn't written.
+            if m.enigma_place != old.enigma_place {
+                out.extend(edit::set_attr(source, n, "place", (m.enigma_place == "above").then_some("above")));
+            }
+        }
         _ => {} // dmsguildLogo: kept exactly as written
     }
     out
+}
+
+#[cfg(test)]
+mod contents_tests {
+    use super::*;
+
+    const SRC: &str = "<supplement type=\"rules\">\n    <cover>\n        <headerTitle>T</headerTitle>\n    </cover>\n\n    <chapter name=\"a\"/>\n</supplement>\n";
+
+    #[test]
+    fn add_and_remove_the_contents_logo() {
+        let mut m = read(SRC).unwrap();
+        assert!(!m.contents_logo);
+        m.contents_logo = true;
+        let out = plan(SRC, &m).unwrap();
+        assert_eq!(
+            out,
+            "<supplement type=\"rules\">\n    <cover>\n        <headerTitle>T</headerTitle>\n    </cover>\n\n    <contents>\n        <enigmaLogo/>\n    </contents>\n\n    <chapter name=\"a\"/>\n</supplement>\n"
+        );
+        let mut m = read(&out).unwrap();
+        assert!(m.contents_logo && m.contents_attrs.is_empty());
+        assert_eq!(plan(&out, &m).unwrap(), out, "unchanged");
+        m.contents_logo = false;
+        let gone = plan(&out, &m).unwrap();
+        assert!(!gone.contains("enigmaLogo") && gone.contains("<contents>"), "{gone}");
+        // Back into the now-empty <contents>.
+        let mut m = read(&gone).unwrap();
+        m.contents_logo = true;
+        assert!(read(&plan(&gone, &m).unwrap()).unwrap().contents_logo);
+    }
+
+    #[test]
+    fn kept_without_a_cover_and_when_the_cover_goes() {
+        let src = "<supplement type=\"rules\">\n    <cover/>\n    <contents>\n        <enigmaLogo width=\"1in\"/>\n    </contents>\n    <chapter name=\"a\"/>\n</supplement>\n";
+        let m = read(src).unwrap();
+        assert_eq!(m.contents_attrs, vec![("width".to_string(), "1in".to_string())]);
+        // Removing the cover keeps the contents logo.
+        let removed = CoverModel { contents_logo: m.contents_logo, contents_attrs: m.contents_attrs.clone(), ..Default::default() };
+        let out = plan(src, &removed).unwrap();
+        assert!(!out.contains("<cover") && out.contains("<enigmaLogo width=\"1in\"/>"), "{out}");
+        assert!(read(&out).unwrap().contents_logo);
+        // No cover at all: a new <contents> goes first.
+        let bare = "<supplement type=\"rules\">\n    <chapter name=\"a\"/>\n</supplement>\n";
+        let m = CoverModel { contents_logo: true, ..Default::default() };
+        assert_eq!(
+            plan(bare, &m).unwrap(),
+            "<supplement type=\"rules\">\n    <contents>\n        <enigmaLogo/>\n    </contents>\n\n    <chapter name=\"a\"/>\n</supplement>\n"
+        );
+    }
+}
+
+#[cfg(test)]
+mod enigma_tests {
+    use super::*;
+
+    const SRC: &str = "<supplement type=\"rules\">\n    <cover>\n        <headerTitle>T</headerTitle>\n        <dmsguildLogo/>\n    </cover>\n\n    <chapter name=\"a\"/>\n</supplement>\n";
+
+    #[test]
+    fn add_move_and_remove_the_enigma_logo() {
+        let old = read(SRC).unwrap();
+        assert!(!old.enigma_logo);
+        let mut m = old.clone();
+        m.enigma_logo = true;
+        let out = plan(SRC, &m).unwrap();
+        assert!(out.contains("        <dmsguildLogo/>\n        <enigmaLogo/>\n    </cover>"), "{out}");
+        // Above the DMs Guild logo.
+        let old = read(&out).unwrap();
+        assert!(old.enigma_logo && old.enigma_place.is_empty());
+        let mut m = old.clone();
+        m.enigma_place = "above".into();
+        let out2 = plan(&out, &m).unwrap();
+        assert!(out2.contains("<enigmaLogo place=\"above\"/>"), "{out2}");
+        assert_eq!(read(&out2).unwrap().enigma_place, "above");
+        // Back to opposite drops the attribute; unticking drops the element.
+        let mut m = read(&out2).unwrap();
+        m.enigma_place = "opposite".into();
+        assert!(plan(&out2, &m).unwrap().contains("<enigmaLogo/>"));
+        m.enigma_logo = false;
+        assert!(!plan(&out2, &m).unwrap().contains("enigmaLogo"));
+        // A new cover with it above.
+        let mut m = read(SRC).unwrap();
+        m.enigma_logo = true;
+        m.enigma_place = "above".into();
+        assert!(plan(SRC, &m).unwrap().contains("<dmsguildLogo/>\n        <enigmaLogo place=\"above\"/>"));
+    }
 }
 
 #[cfg(test)]

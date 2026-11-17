@@ -287,7 +287,9 @@ pub fn CoverForm(tab: DocTab) -> impl IntoView {
             .and_then(|w| w.confirm_with_message("Remove the cover from this supplement? Its title, art and footer lines are deleted from the file.").ok())
             .unwrap_or(false);
         if ok {
-            apply_model(tab, CoverModel::default());
+            // The contents-page logo isn't part of the cover: it stays.
+            let m = base.get_untracked();
+            apply_model(tab, CoverModel { contents_logo: m.contents_logo, contents_attrs: m.contents_attrs, ..Default::default() });
         }
     };
     let convert_legacy = move |_| {
@@ -369,6 +371,38 @@ pub fn CoverForm(tab: DocTab) -> impl IntoView {
                             view! { <p class="hint">"Kept as written: " <code>{attrs}</code></p> }
                         })
                     }}
+                    <Check form label="Enigma Narrative logo"
+                        hint="The same size as the DMs Guild logo unless its width or height says otherwise."
+                        get=|m| m.enigma_logo set=|m, v| m.enigma_logo = v/>
+                    {move || form.model().enigma_logo.then(|| view! {
+                        <label class="field">
+                            <span class="field-label">"Placed"</span>
+                            <select on:change=move |ev| { let v = event_target_value(&ev); form.update(move |m| m.enigma_place = v.clone()); }>
+                                <option value="opposite" selected=move || form.model().enigma_place != "above">"Opposite the DMs Guild logo (lower right)"</option>
+                                <option value="above" selected=move || form.model().enigma_place == "above">"Just above the DMs Guild logo"</option>
+                            </select>
+                        </label>
+                    })}
+                    {move || {
+                        let m = form.model();
+                        let above_alone = m.enigma_logo && m.enigma_place == "above" && !m.dmsguild_logo;
+                        above_alone.then(|| view! { <p class="hint bad">"\u{201c}Just above\u{201d} sits on the DMs Guild logo: tick it too, or the compiler stops."</p> })
+                    }}
+                    {move || {
+                        let m = form.model();
+                        let extra: Vec<String> = m.enigma_attrs.iter().filter(|(k, _)| k != "place").map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+                        (m.enigma_logo && !extra.is_empty()).then(|| view! { <p class="hint">"Kept as written: " <code>{extra.join(" ")}</code></p> })
+                    }}
+                    <Check form label="Enigma Narrative logo on the contents page"
+                        hint="Top-right corner of the contents page, beside the heading; the entries don't move. DMsGuild doesn't allow imprint logos on the cover, so for a DMsGuild release use this instead of the cover logo."
+                        get=|m| m.contents_logo set=|m, v| m.contents_logo = v/>
+                    {move || {
+                        let m = form.model();
+                        (m.contents_logo && !m.contents_attrs.is_empty()).then(|| {
+                            let attrs = m.contents_attrs.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect::<Vec<_>>().join(" ");
+                            view! { <p class="hint">"Kept as written: " <code>{attrs}</code></p> }
+                        })
+                    }}
                 </fieldset>
 
                 <div class="form-actions">
@@ -399,17 +433,29 @@ fn dir_of(path: &str) -> &str {
     path.rfind(['\\', '/']).map_or("", |i| &path[..i])
 }
 
+/// The Enigma Narrative logo's file, which the compiler looks for upward.
+const ENIGMA_LOGO: &str = "Enigma_Narrative-2-01_bordered.png";
+
 #[component]
 fn CoverPreview(form: Form, choices: Memo<Vec<ImageChoice>>) -> impl IntoView {
     let tab = form.tab;
     let logo_src: RwSignal<Option<String>> = RwSignal::new(None);
-    // Find the logo file, as the compiler would, whenever the logo or its src changes.
+    let enigma_src: RwSignal<Option<String>> = RwSignal::new(None);
+    // Find the logo files, as the compiler would, whenever a logo or its src changes.
     Effect::new(move |_| {
         let m = form.model();
         let src = m.logo_attrs.iter().find(|(k, _)| k == "src").map(|(_, v)| v.clone());
         let path = tab.doc().path.clone();
         if m.dmsguild_logo {
-            spawn_local(async move { logo_src.set(api::find_logo(&path, src.as_deref()).await) });
+            spawn_local(async move { logo_src.set(api::find_logo(&path, src.as_deref(), None).await) });
+        }
+    });
+    Effect::new(move |_| {
+        let m = form.model();
+        let src = m.enigma_attrs.iter().find(|(k, _)| k == "src").map(|(_, v)| v.clone());
+        let path = tab.doc().path.clone();
+        if m.enigma_logo {
+            spawn_local(async move { enigma_src.set(api::find_logo(&path, src.as_deref(), Some(ENIGMA_LOGO)).await) });
         }
     });
 
@@ -460,33 +506,63 @@ fn CoverPreview(form: Form, choices: Memo<Vec<ImageChoice>>) -> impl IntoView {
         })
     };
 
-    let logo = move || {
-        let m = form.model();
-        if !m.dmsguild_logo {
-            return None;
+    // A logo's size, from its own width/height or else `fallback` (the DMs Guild logo's).
+    fn size_css(attrs: &[(String, String)], fallback: Option<&[(String, String)]>) -> String {
+        let len = |a: &[(String, String)], k: &str, page: f64| a.iter().find(|(n, _)| n == k).and_then(|(_, v)| length_fraction(v, page)).map(|f| f * page);
+        let mut wh = (len(attrs, "width", PAGE_W), len(attrs, "height", PAGE_H));
+        if wh == (None, None) {
+            if let Some(f) = fallback {
+                wh = (len(f, "width", PAGE_W), len(f, "height", PAGE_H));
+            }
         }
-        let get = |k: &str| m.logo_attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let len = |k: &str, page: f64| get(k).and_then(|v| length_fraction(&v, page)).map(|f| f * page);
-        let margin = len("margin", PAGE_W).unwrap_or(0.5);
-        let x = len("xMargin", PAGE_W).unwrap_or(margin);
-        let y = len("yMargin", PAGE_H).unwrap_or(margin);
-        let size = match (len("width", PAGE_W), len("height", PAGE_H)) {
+        match wh {
             (None, None) => format!("width:{};", inch(1.0)),
             (Some(w), None) => format!("width:{};", inch(w)),
             (None, Some(h)) => format!("height:{};", inch(h)),
             (Some(w), Some(h)) => format!("max-width:{};max-height:{};", inch(w), inch(h)),
-        };
-        let style = format!("left:{};bottom:{};{size}", inch(x), inch(y));
-        Some(match logo_src.get() {
-            Some(file) => view! { <img class="logo" src=api::convert_file_src(&file) style=style/> }.into_any(),
-            None => view! {
-                <div class="logo missing" style=format!("{style}height:{};", inch(0.6))
-                    title="No DMsGuildProductLogoLarge.png found in this folder or any folder above: the compiler stops">
-                    "DMs Guild logo (file not found)"
+        }
+    }
+    let img = move |file: Option<String>, style: String, what: &'static str| match file {
+        Some(file) => view! { <img class="logo" src=api::convert_file_src(&file) style=style/> }.into_any(),
+        None => view! {
+            <div class="logo missing" style=format!("{style}height:{};", inch(0.6)) title=format!("No {what} file found in this folder or any folder above: the compiler stops")>
+                {format!("{what} (file not found)")}
+            </div>
+        }
+        .into_any(),
+    };
+    let logo = move || {
+        let m = form.model();
+        let get = |a: &[(String, String)], k: &str| a.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let len = |a: &[(String, String)], k: &str, page: f64| get(a, k).and_then(|v| length_fraction(&v, page)).map(|f| f * page);
+        let margin = len(&m.logo_attrs, "margin", PAGE_W).unwrap_or(0.5);
+        let x = len(&m.logo_attrs, "xMargin", PAGE_W).unwrap_or(margin);
+        let y = len(&m.logo_attrs, "yMargin", PAGE_H).unwrap_or(margin);
+        let guild_size = size_css(&m.logo_attrs, None);
+        let enigma_size = size_css(&m.enigma_attrs, Some(&m.logo_attrs));
+        let above = m.enigma_logo && m.enigma_place == "above";
+        let mut out = Vec::new();
+        if m.dmsguild_logo && above {
+            // A stack in the lower-left: the Enigma logo, the gap, the DMs Guild logo.
+            let gap = len(&m.enigma_attrs, "gap", PAGE_H).unwrap_or(0.15);
+            out.push(view! {
+                <div class="logo-stack" style=format!("left:{};bottom:{};gap:{};", inch(x), inch(y), inch(gap))>
+                    {img(enigma_src.get(), enigma_size.clone(), "Enigma Narrative logo")}
+                    {img(logo_src.get(), guild_size.clone(), "DMs Guild logo")}
                 </div>
+            }.into_any());
+        } else {
+            if m.dmsguild_logo {
+                out.push(img(logo_src.get(), format!("left:{};bottom:{};{guild_size}", inch(x), inch(y)), "DMs Guild logo"));
             }
-            .into_any(),
-        })
+            if m.enigma_logo && !above {
+                let em = len(&m.enigma_attrs, "margin", PAGE_W).unwrap_or(margin);
+                let ex = len(&m.enigma_attrs, "xMargin", PAGE_W).unwrap_or(em);
+                let ey = len(&m.enigma_attrs, "yMargin", PAGE_H).or(len(&m.logo_attrs, "yMargin", PAGE_H)).unwrap_or(em);
+                out.push(img(enigma_src.get(), format!("right:{};bottom:{};{enigma_size}", inch(ex), inch(ey)), "Enigma Narrative logo"));
+            }
+        }
+        out.collect_view()
     };
 
     view! {

@@ -142,7 +142,7 @@ const ORDER: &[(&str, &[&str])] = &[
     ("duration", &["concentration", "value", "unit"]),
     ("higherLevels", &["cantripUpgrades", "slotUpgrades"]),
     // supplements: the blocks after the chapters
-    ("supplement", &["cover", "chapter|credits|license", "treasure", "data", "reference", "chapterOrder"]),
+    ("supplement", &["cover", "contents", "chapter|credits|license", "treasure", "data", "reference", "chapterOrder"]),
     ("credits", &["role|roleStyle", "credit|imageCredits|license|isbn|verbatimCredit", "copyright"]),
     ("parcel", &["coins", "gems", "art", "magicItems", "other", "description"]),
     ("coins", &["pp", "ep", "gp", "sp", "cp"]),

@@ -124,7 +124,7 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     }
     let top = d.nodes[0].children.contains(&idx);
     match n.tag.as_str() {
-        "cover" if top => Some(FormKind::Cover),
+        "cover" | "contents" if top => Some(FormKind::Cover),
         "chapter" if top => {
             shared::edit::start_tag(&d.source, n.start)?.value("name").map(FormKind::Chapter)
         }

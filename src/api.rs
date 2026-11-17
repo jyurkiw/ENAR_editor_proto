@@ -151,11 +151,13 @@ pub async fn monster_outline(doc_path: &str, file: &str) -> Result<shared::famil
 
 /// The DMs Guild logo file a supplement's cover would use: `src` relative to the
 /// supplement, or DMsGuildProductLogoLarge.png in its folder or any folder above.
-pub async fn find_logo(doc_path: &str, src: Option<&str>) -> Option<String> {
+/// A cover logo's file: its src, or `file` (default the DMs Guild logo) found upward.
+pub async fn find_logo(doc_path: &str, src: Option<&str>, file: Option<&str>) -> Option<String> {
     #[derive(Serialize)]
     struct A<'a> {
         doc_path: &'a str,
         src: Option<&'a str>,
+        file: Option<&'a str>,
     }
-    invoke("find_logo", &A { doc_path, src }).await.ok().flatten()
+    invoke("find_logo", &A { doc_path, src, file }).await.ok().flatten()
 }
