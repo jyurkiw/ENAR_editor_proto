@@ -390,5 +390,32 @@ This is the part that has to be safe.
      `enigma-words.txt` changed.
 - `.\build-release.ps1 -NoBundle`.
 
-**Total: about 4 to 5 days.** Phases 1 to 4 (pills) can ship before phase 5 (spelling) if
-you want the single-source-of-truth part first.
+**Results (2026-11-15): done.**
+
+- **Test suites:**
+  - `cargo test --workspace`: 100 shared tests and 11 backend tests pass;
+  - all 28 ignored real-repo tests pass, including the two pill tests;
+  - `cargo check --target wasm32-unknown-unknown` is clean, with no warnings.
+- **End-to-end in the dev app**, on the compiler test (restored from git afterwards):
+  1. Typing "Garrick sighs." underlined Garrick in blue.
+  2. "Make pill" made it the short-name ref.
+  3. "Pill every 'Garrick'" applied the paragraph being edited first, then previewed
+     18 mentions.
+  4. Replacing them left no blue Garricks, and the file stayed valid.
+  5. Renaming the noun's short name to "Gar" in the reference editor, a one-attribute edit,
+     made every short-name pill in the section read "Gar".
+  6. "recieve" offered "receive", "relieve" and "reverie" plus "Add to project words".
+     Picking "receive" fixed it and cleared the underline.
+- **Release build** (`build-release.ps1 -NoBundle`): `Enigma Narrative Editor.exe` grew
+  from 13.6 MB to 14.6 MB with the dictionary and spellbook. Run with remote debugging, it
+  loaded the dictionary from its bundled assets, drew both kinds of underline, and re-marked
+  in about 1 ms per keystroke.
+
+**All six phases are done** (2026-11-14 to 15).
+
+**Still open:**
+
+- `enigma-words.txt` isn't re-read when it changes on disk until the project is opened
+  again.
+- Drafts on cards other than paragraphs aren't applied before "Pill every mention".
+- Paste from the menu is plain text; Ctrl+V keeps chips.
