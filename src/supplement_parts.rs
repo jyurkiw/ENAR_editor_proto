@@ -9,7 +9,7 @@ use leptos::ev::MouseEvent;
 use leptos::prelude::*;
 use shared::statblock::{self as sb, El, StatEdit, ROOT};
 
-use crate::family_form::confirm;
+use crate::dialogs::ask;
 use crate::license_form::p_row;
 use crate::state::DocTab;
 use crate::statblock_form::{card_bar, edit, keys, kid_text, pick_in, text_in, Card, Loc, Rows};
@@ -233,9 +233,9 @@ fn ParcelCard(tab: DocTab, root: Memo<Option<El>>, path: Vec<usize>) -> impl Int
     let r = Loc::ROOT;
     let busy = move || tab.applying.get();
     let delete = move |_: MouseEvent| {
-        if confirm(&format!("Delete parcel {}?", el.get_untracked().map(|e| e.get("number").to_string()).unwrap_or_default())) {
-            edit(tab, StatEdit::Delete { child: ROOT, path: p.get_value(), tag: "parcel".into() });
-        }
+        ask(format!("Delete parcel {}?", el.get_untracked().map(|e| e.get("number").to_string()).unwrap_or_default()), move || {
+            edit(tab, StatEdit::Delete { child: ROOT, path: p.get_value(), tag: "parcel".into() })
+        });
     };
     let me = *path.last().unwrap_or(&0);
     let up = path[..path.len() - 1].to_vec();

@@ -283,14 +283,11 @@ pub fn CoverForm(tab: DocTab) -> impl IntoView {
     };
     let revert = move |_| tab.cover_draft.set(None);
     let remove = move |_| {
-        let ok = web_sys::window()
-            .and_then(|w| w.confirm_with_message("Remove the cover from this supplement? Its title, art and footer lines are deleted from the file.").ok())
-            .unwrap_or(false);
-        if ok {
+        crate::dialogs::ask("Remove the cover from this supplement? Its title, art and footer lines are deleted from the file.", move || {
             // The contents-page logo isn't part of the cover: it stays.
             let m = base.get_untracked();
             apply_model(tab, CoverModel { contents_logo: m.contents_logo, contents_attrs: m.contents_attrs, ..Default::default() });
-        }
+        });
     };
     let convert_legacy = move |_| {
         form.update(|m| {

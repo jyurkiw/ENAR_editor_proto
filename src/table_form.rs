@@ -13,6 +13,7 @@ use wasm_bindgen::JsCast;
 
 use crate::prose_editor::ChipEditor;
 use crate::apply::apply;
+use crate::dialogs::ask;
 use crate::state::DocTab;
 
 fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
@@ -22,9 +23,6 @@ fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
         .is_some_and(|(n, e)| e.contains(Some(&n)))
 }
 
-fn confirm(msg: &str) -> bool {
-    web_sys::window().and_then(|w| w.confirm_with_message(msg).ok()).unwrap_or(false)
-}
 
 #[component]
 fn InfoCard(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>, links: Memo<usize>) -> impl IntoView {
@@ -157,9 +155,7 @@ fn HeaderRow(tab: DocTab, at: StoredValue<TableAt>, col: usize, view: Memo<Optio
             let n = cells.with(|c| c.get(col).copied().unwrap_or(0));
             format!("Delete the column {label}? Its header and {n} row cell(s) are removed.")
         };
-        if confirm(&msg) {
-            apply(tab, Change::Table { edit: TableEdit::DeleteHeader { at: at.get_value(), col } });
-        }
+        ask(msg, move || apply(tab, Change::Table { edit: TableEdit::DeleteHeader { at: at.get_value(), col } }));
     };
     let swap = move |c: usize| apply(tab, Change::Table { edit: TableEdit::SwapHeaders { at: at.get_value(), col: c } });
 
@@ -346,9 +342,7 @@ fn RowCard(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>,
         } else {
             format!("Delete footer row {}?", row + 1)
         };
-        if confirm(&msg) {
-            apply(tab, Change::Table { edit: TableEdit::DeleteRow { at: at.get_value(), part, row } });
-        }
+        ask(msg, move || apply(tab, Change::Table { edit: TableEdit::DeleteRow { at: at.get_value(), part, row } }));
     };
     let swap = move |r: usize| apply(tab, Change::Table { edit: TableEdit::SwapRows { at: at.get_value(), part, row: r } });
     let add_below = move |_: MouseEvent| apply(tab, Change::Table { edit: TableEdit::AddRow { at: at.get_value(), part, after: Some(row) } });

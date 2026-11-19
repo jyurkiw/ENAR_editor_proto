@@ -120,10 +120,7 @@ pub fn ChapterForm(tab: DocTab, name: String) -> impl IntoView {
         } else {
             format!("Delete chapter \"{n}\" and everything in it? Its <ch> entry is removed from <chapterOrder>.")
         };
-        let ok = web_sys::window().and_then(|w| w.confirm_with_message(&msg).ok()).unwrap_or(false);
-        if ok {
-            apply(tab, Change::Chapter { edit: ChapterEdit::Delete { name: n } });
-        }
+        crate::dialogs::ask(msg, move || apply(tab, Change::Chapter { edit: ChapterEdit::Delete { name: n } }));
     };
 
     // Opening a child: the file's child at that position (only for children already in the file).

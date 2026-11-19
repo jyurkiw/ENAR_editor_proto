@@ -14,6 +14,7 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
+use crate::dialogs::{ask, confirm};
 use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 
@@ -24,9 +25,6 @@ fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
         .is_some_and(|(n, e)| e.contains(Some(&n)))
 }
 
-fn confirm(msg: &str) -> bool {
-    web_sys::window().and_then(|w| w.confirm_with_message(msg).ok()).unwrap_or(false)
-}
 
 fn edit(tab: DocTab, e: BoxEdit) {
     apply(tab, Change::Box { edit: e });
@@ -79,9 +77,9 @@ fn BoxInfo(tab: DocTab, at: StoredValue<BoxAt>, view: Memo<Option<BoxView>>) -> 
     };
     let n_paras = move || view.with(|v| v.as_ref().map(|v| v.paras.len()).unwrap_or(0));
     let delete = move |_: MouseEvent| {
-        if confirm(&format!("Delete this {} and its {} paragraph(s)?", box_name(&tag.get_untracked()), n_paras())) {
-            edit(tab, BoxEdit::Delete { at: at.get_value() });
-        }
+        ask(format!("Delete this {} and its {} paragraph(s)?", box_name(&tag.get_untracked()), n_paras()), move || {
+            edit(tab, BoxEdit::Delete { at: at.get_value() })
+        });
     };
     let open_section = move |_: MouseEvent| {
         let d = tab.doc_untracked();
@@ -197,19 +195,25 @@ fn TextRow(
         let Some(i) = n else { return };
         let name = box_name(&tag.get_untracked());
         let empty = base.get_untracked().trim().is_empty();
-        let e = if count.get_untracked() == 1 {
-            if confirm(&format!("This is the {name}'s last paragraph. Delete the whole {name}?")) {
-                Some(true)
-            } else if confirm(&format!("Delete just the paragraph, leaving the {name} empty?")) {
-                Some(false)
-            } else {
-                None
-            }
+        let del = move |with_box| edit(tab, BoxEdit::DeleteP { at: at.get_value(), n: i, with_box });
+        if count.get_untracked() == 1 {
+            // Two questions, so not `ask`; like it, the edit runs under this owner.
+            let owner = Owner::current();
+            let run = move |with_box| match &owner {
+                Some(o) => o.with(|| del(with_box)),
+                None => del(with_box),
+            };
+            leptos::task::spawn_local(async move {
+                if confirm(&format!("This is the {name}'s last paragraph. Delete the whole {name}?")).await {
+                    run(true)
+                } else if confirm(&format!("Delete just the paragraph, leaving the {name} empty?")).await {
+                    run(false)
+                }
+            });
+        } else if empty {
+            del(false)
         } else {
-            (empty || confirm("Delete this paragraph?")).then_some(false)
-        };
-        if let Some(with_box) = e {
-            edit(tab, BoxEdit::DeleteP { at: at.get_value(), n: i, with_box });
+            ask("Delete this paragraph?", move || del(false));
         }
     };
     let clear_trigger = move |_: MouseEvent| edit(tab, BoxEdit::SetTrigger { at: at.get_value(), text: String::new() });

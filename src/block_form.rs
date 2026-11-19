@@ -257,11 +257,9 @@ fn BlockRow(
 
     let delete = move |_: MouseEvent| {
         let empty = block.get_untracked().is_some_and(|b| b.text.trim().is_empty());
-        let ok = empty
-            || web_sys::window().and_then(|w| w.confirm_with_message("Delete this paragraph?").ok()).unwrap_or(false);
-        if ok {
-            apply(tab, Change::Block { edit: BlockEdit::DeleteP { at: at.get_value(), child: child() } });
-        }
+        let c = child();
+        let del = move || apply(tab, Change::Block { edit: BlockEdit::DeleteP { at: at.get_value(), child: c } });
+        if empty { del() } else { crate::dialogs::ask("Delete this paragraph?", del) }
     };
 
     // Drag by the grip; drop on a block's top or bottom half.

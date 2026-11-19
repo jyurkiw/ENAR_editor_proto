@@ -437,9 +437,9 @@ fn RefCard(
         } else {
             format!("Delete <{} id=\"{}\"> from <reference>?", b.tag, b.id())
         };
-        if web_sys::window().and_then(|w| w.confirm_with_message(&msg).ok()).unwrap_or(false) {
-            apply_from(tab, Change::Reference { edit: RefEdit::Delete { tag: b.tag.clone(), id: b.id() } }, Some(key.get_value()));
-        }
+        crate::dialogs::ask(msg, move || {
+            apply_from(tab, Change::Reference { edit: RefEdit::Delete { tag: b.tag.clone(), id: b.id() } }, Some(key.get_value()))
+        });
     };
 
     // Dragging: the header is the handle; dropping on a card's top or bottom half puts
