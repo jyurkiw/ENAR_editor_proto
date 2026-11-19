@@ -9,6 +9,38 @@ use crate::api;
 use crate::apply::apply;
 use crate::state::{ctx, Dialog};
 
+/// Asks OK/Cancel and waits for the answer. The dialog plugin replaces `window.confirm`
+/// with an async one (a Promise of the answer), so a plain `confirm_with_message` sees
+/// the Promise, reads it as Cancel, and returns before the dialog is even answered.
+pub async fn confirm(msg: &str) -> bool {
+    use wasm_bindgen::JsCast;
+    let Some(w) = web_sys::window() else { return false };
+    let Some(f) = js_sys::Reflect::get(&w, &"confirm".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) else {
+        return false;
+    };
+    let Ok(v) = f.call1(&w, &msg.into()) else { return false };
+    let v = match v.dyn_into::<js_sys::Promise>() {
+        Ok(p) => wasm_bindgen_futures::JsFuture::from(p).await.unwrap_or(wasm_bindgen::JsValue::FALSE),
+        Err(v) => v,
+    };
+    v.as_bool().unwrap_or(false)
+}
+
+/// Asks OK/Cancel; runs `yes` once the answer is OK, under the caller's reactive owner
+/// (after the await there is none, and `apply` needs the app's context from it).
+pub fn ask(msg: impl Into<String>, yes: impl FnOnce() + 'static) {
+    let msg = msg.into();
+    let owner = Owner::current();
+    spawn_local(async move {
+        if confirm(&msg).await {
+            match owner {
+                Some(o) => o.with(yes),
+                None => yes(),
+            }
+        }
+    });
+}
+
 #[component]
 pub fn ErrorDialog() -> impl IntoView {
     let app = ctx();

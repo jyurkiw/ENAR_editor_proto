@@ -129,6 +129,76 @@ pub fn ref_index(path: &str, project: &ProjectInfo, v: &Validator) -> Result<sha
     }
 }
 
+#[derive(Deserialize)]
+struct PyPreview {
+    ok: bool,
+    #[serde(default)]
+    images: Vec<String>,
+    #[serde(default)]
+    warnings: Vec<String>,
+    #[serde(default)]
+    error: String,
+}
+
+/// One at a time: every preview writes the same files in the cache.
+static PREVIEW_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The stat block `monster` (its id) of the monster file at `path`, printed by the compiler
+/// (encompile.preview) and LaTeX, one column wide, cropped to the block.
+pub fn preview(path: &str, monster: &str, project: &ProjectInfo, v: &Validator) -> Result<shared::Preview, AppError> {
+    let _one = PREVIEW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let file = dunce::canonicalize(path).map_err(|e| AppError::new(format!("Can't open {path}: {e}")))?;
+    let out_dir = v.venv.parent().unwrap_or(Path::new(".")).join("preview");
+    let mut cmd = Command::new(uv_exe());
+    cmd.args(["run", "--quiet", "--project", &project.compiler_dir, "python", "-m", "encompile.preview"])
+        .arg(&file)
+        .arg(monster)
+        .arg(&out_dir)
+        .current_dir(&project.compiler_dir)
+        .env("UV_PROJECT_ENVIRONMENT", &v.venv);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let out = cmd.output().map_err(|e| AppError::new(format!("couldn't run uv: {e}")))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json = stdout.lines().rev().find(|l| l.trim_start().starts_with('{'));
+    match json.and_then(|j| serde_json::from_str::<PyPreview>(j).ok()) {
+        Some(r) if r.ok => {
+            let images = r
+                .images
+                .iter()
+                .map(|p| {
+                    std::fs::read(p)
+                        .map(|b| format!("data:image/png;base64,{}", base64(&b)))
+                        .map_err(|e| AppError::new(format!("Can't read the preview image {p}: {e}")))
+                })
+                .collect::<Result<_, _>>()?;
+            Ok(shared::Preview { images, warnings: r.warnings })
+        }
+        Some(r) => Err(AppError::new(r.error)),
+        None => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let msg = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("no output");
+            Err(AppError::new(format!("The preview failed: {}", msg.trim())))
+        }
+    }
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            s.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    s
+}
+
 fn run_lxml(v: &Validator, compiler: &str, file: &Path, xsd: &Path) -> Outcome {
     let mut cmd = Command::new(uv_exe());
     cmd.args(["run", "--quiet", "--project", compiler, "python"])
@@ -1887,5 +1957,17 @@ mod real {
         // A cell that isn't well-formed is refused.
         let r = apply_edit(&path_str(&file), &cur, &p, &v, |s| table::plan(s, &TableEdit::SetCell { at: at("tbl-ring"), part: Part::Body, row: 0, col: 0, text: "<b>open".into() })).unwrap();
         assert!(matches!(r, ApplyResult::Invalid { .. }));
+    }
+}
+
+#[cfg(test)]
+mod b64 {
+    #[test]
+    fn encodes() {
+        assert_eq!(super::base64(b""), "");
+        assert_eq!(super::base64(b"f"), "Zg==");
+        assert_eq!(super::base64(b"fo"), "Zm8=");
+        assert_eq!(super::base64(b"foo"), "Zm9v");
+        assert_eq!(super::base64(b"foobar"), "Zm9vYmFy");
     }
 }

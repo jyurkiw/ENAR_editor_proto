@@ -1,8 +1,8 @@
 //! Enigma Narrative supplement editor: the Leptos frontend.
 //!
 //! Layout: a toolbar; file tabs across the top (one per open file); vertical tabs on the
-//! left switching the side panel between the File-system tree and the File-structure
-//! tree; the main area showing the selected element's source.
+//! left switching the side panel between the File-system tree, the File-structure tree
+//! and the stat block Preview; the main area showing the selected element's source.
 
 mod api;
 mod apply;
@@ -21,6 +21,7 @@ mod license_form;
 mod supplement_parts;
 mod section_el_form;
 mod list_form;
+mod preview;
 mod prose_editor;
 mod family_form;
 mod statblock_form;
@@ -36,11 +37,20 @@ use leptos::task::spawn_local;
 
 use dialogs::{BusyNotice, Dialogs, ErrorDialog};
 use files::{ContextMenu, FilesPanel};
+use preview::PreviewPanel;
 use state::{ctx, AppCtx, Dialog, Side};
 use structure::StructurePanel;
 use viewer::Viewer;
 
 fn main() {
+    // This crate is the web UI: it runs as WebAssembly inside the app window. Built for the
+    // desktop (`cargo run` in this folder), its first browser call would panic.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        eprintln!("enigma-ui is the editor's web UI and only runs inside the app. Start the editor with:\n\n    cargo tauri dev\n");
+        std::process::exit(1);
+    }
+    #[allow(unreachable_code)]
     console_error_panic_hook::set_once();
     spelling::start();
     leptos::mount::mount_to_body(App);
@@ -83,6 +93,7 @@ fn App() -> impl IntoView {
                     {move || match app.side.get() {
                         Side::Files => view! { <FilesPanel/> }.into_any(),
                         Side::Structure => view! { <StructurePanel/> }.into_any(),
+                        Side::Preview => view! { <PreviewPanel/> }.into_any(),
                     }}
                 </aside>
                 <main class="main"><Viewer/></main>
@@ -186,6 +197,7 @@ fn SideTabs() -> impl IntoView {
         <nav class="side-tabs">
             {tab(Side::Files, "File system")}
             {tab(Side::Structure, "File structure")}
+            {tab(Side::Preview, "Preview")}
         </nav>
     }
 }

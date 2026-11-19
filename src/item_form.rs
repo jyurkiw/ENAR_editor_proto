@@ -14,7 +14,7 @@ use leptos::prelude::*;
 use shared::item;
 use shared::statblock::{self as sb, El, StatEdit, ROOT};
 
-use crate::family_form::confirm;
+use crate::dialogs::ask;
 use crate::prose_editor::ChipEditor;
 use crate::reference_form::ReferenceForm;
 use crate::state::DocTab;
@@ -233,9 +233,10 @@ fn BlockCard(tab: DocTab, it: Memo<Option<El>>, path: Vec<usize>, parent: &'stat
     let t3 = tag.clone();
     let delete = move |ev: MouseEvent| {
         ev.prevent_default();
-        if confirm(&format!("Delete this {}?", item::block_label(&t3).to_lowercase())) {
-            edit(tab, StatEdit::Delete { child: ROOT, path: p.get_value(), tag: t3.clone() });
-        }
+        let tag = t3.clone();
+        ask(format!("Delete this {}?", item::block_label(&t3).to_lowercase()), move || {
+            edit(tab, StatEdit::Delete { child: ROOT, path: p.get_value(), tag })
+        });
     };
     let summary = move || el.with(|e| e.as_ref().map(summary_of).unwrap_or_default());
     let details = NodeRef::<html::Details>::new();

@@ -12,6 +12,7 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
+use crate::dialogs::ask;
 use crate::prose_editor::ChipEditor;
 use shared::inline::RefCtx;
 use crate::state::DocTab;
@@ -23,9 +24,6 @@ fn focus_stays(ev: &FocusEvent, el: &NodeRef<html::Div>) -> bool {
         .is_some_and(|(n, e)| e.contains(Some(&n)))
 }
 
-fn confirm(msg: &str) -> bool {
-    web_sys::window().and_then(|w| w.confirm_with_message(msg).ok()).unwrap_or(false)
-}
 
 fn edit(tab: DocTab, e: ListEdit) {
     apply(tab, Change::List { edit: e });
@@ -61,9 +59,7 @@ fn ListInfo(tab: DocTab, at: StoredValue<ListAt>, view: Memo<Option<ListView>>) 
     };
     let n_items = move || view.with(|v| v.as_ref().map(|v| v.items.len()).unwrap_or(0));
     let delete = move |_: MouseEvent| {
-        if confirm(&format!("Delete this list and its {} item(s)?", n_items())) {
-            edit(tab, ListEdit::Delete { at: at.get_value() });
-        }
+        ask(format!("Delete this list and its {} item(s)?", n_items()), move || edit(tab, ListEdit::Delete { at: at.get_value() }));
     };
     let open_container = move |_: MouseEvent| {
         let d = tab.doc_untracked();
@@ -157,13 +153,13 @@ fn ItemRow(tab: DocTab, at: StoredValue<ListAt>, n: usize, items: Memo<Vec<Strin
     let delete = move |_: MouseEvent| {
         let only = count.get_untracked() == 1;
         let empty = base.get_untracked().trim().is_empty();
-        let ok = if only {
-            confirm("Delete the only item? The <list> goes with it.")
+        let del = move || edit(tab, ListEdit::DeleteItem { at: at.get_value(), n });
+        if only {
+            ask("Delete the only item? The <list> goes with it.", del)
+        } else if empty {
+            del()
         } else {
-            empty || confirm("Delete this item?")
-        };
-        if ok {
-            edit(tab, ListEdit::DeleteItem { at: at.get_value(), n });
+            ask("Delete this item?", del)
         }
     };
 

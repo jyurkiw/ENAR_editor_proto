@@ -21,7 +21,8 @@ use shared::Change;
 use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
-use crate::family_form::{bar, confirm, json, Draft};
+use crate::dialogs::ask;
+use crate::family_form::{bar, json, Draft};
 use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 use crate::template_form as tf;
@@ -559,9 +560,9 @@ fn OwnPart(tab: DocTab, child: usize, mon: Memo<Option<El>>, tag: &'static str, 
     let label = family::part_label(tag);
     let delete = move |_: MouseEvent| {
         let Some(p) = el.get_untracked().and_then(|e| e.path) else { return };
-        if confirm(&format!("Delete this stat block's {}?", label.to_lowercase())) {
-            edit(tab, StatEdit::Delete { child, path: p, tag: tag.into() });
-        }
+        ask(format!("Delete this stat block's {}?", label.to_lowercase()), move || {
+            edit(tab, StatEdit::Delete { child, path: p, tag: tag.into() })
+        });
     };
     let body = match tag {
         "quoteBox" => view! {
@@ -974,9 +975,6 @@ fn ItemShell(
         let id = mon.with_untracked(|m| m.as_ref().and_then(|m| find(m, &path)).map(|e| e.get("id").to_string()).unwrap_or_default());
         let refs = if id.is_empty() { 0 } else { sb::refs_to(&tab.doc_untracked().source, child, &tag, &id) };
         let warn = if refs > 0 { format!("\n\n{refs} ref(s) in this stat block point at \u{201c}{id}\u{201d}: the file won't validate until they go.") } else { String::new() };
-        if !confirm(&format!("Delete the {} \u{201c}{}\u{201d}?{warn}", kind.to_lowercase(), summary.get_untracked())) {
-            return;
-        }
         // The last item of a list that needs one: the list goes.
         let only = count() <= 1;
         let host = sibs.with_untracked(|s| s.as_ref().map(|(t, _, n)| (t.clone(), *n)));
@@ -984,13 +982,13 @@ fn ItemShell(
             Some((t, n)) => only && (t == "traits" || t == "reactions" || t == "legendaryActions" || *n == 1),
             None => false,
         };
-        if whole {
-            let up = up.get_value();
+        let e = if whole {
             let t = host.map(|h| h.0).unwrap_or_default();
-            edit(tab, StatEdit::Delete { child, path: up, tag: t });
+            StatEdit::Delete { child, path: up.get_value(), tag: t }
         } else {
-            edit(tab, StatEdit::Delete { child, path, tag });
-        }
+            StatEdit::Delete { child, path, tag }
+        };
+        ask(format!("Delete the {} \u{201c}{}\u{201d}?{warn}", kind.to_lowercase(), summary.get_untracked()), move || edit(tab, e));
     };
     let el = NodeRef::<html::Details>::new();
     let p3 = path.clone();

@@ -138,6 +138,17 @@ pub async fn ref_index(path: &str) -> Result<shared::inline::RefIndex, AppError>
     invoke("ref_index", &PathArg { path }).await
 }
 
+/// The stat block `monster` (its id) of the monster file at `path`, printed by the
+/// compiler and LaTeX: a PNG data URL per page.
+pub async fn preview_statblock(path: &str, monster: &str) -> Result<shared::Preview, AppError> {
+    #[derive(Serialize)]
+    struct A<'a> {
+        path: &'a str,
+        monster: &'a str,
+    }
+    invoke("preview_statblock", &A { path, monster }).await
+}
+
 /// The parts, lairs and stat blocks of the monster file `file` (relative to the
 /// supplement at `doc_path`).
 pub async fn monster_outline(doc_path: &str, file: &str) -> Result<shared::family::Outline, AppError> {

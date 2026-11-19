@@ -15,11 +15,9 @@ use shared::Change;
 use crate::apply::apply;
 use crate::family_form::{FamilyPage, HeaderPage, PartPage};
 use crate::statblock_form::StatPage;
+use crate::dialogs::ask;
 use crate::state::DocTab;
 
-fn confirm(msg: &str) -> bool {
-    web_sys::window().and_then(|w| w.confirm_with_message(msg).ok()).unwrap_or(false)
-}
 
 /// A slug from a name: "Giant Rat" -> "giant-rat".
 fn slug(name: &str) -> String {
@@ -92,9 +90,10 @@ fn StatBlocks(tab: DocTab, path: StoredValue<Vec<usize>>) -> impl IntoView {
                                 <button class="icon-btn danger" disabled=move || { count <= 1 || busy() }
                                     title=if count <= 1 { "A monster file needs at least one stat block" } else { "Delete this stat block" }
                                     on:click=move |_: MouseEvent| {
-                                        if confirm(&format!("Delete the stat block \"{}\"?", b4)) {
-                                            apply(tab, Change::Monster { edit: MonsterEdit::Delete { id: b4.clone() } });
-                                        }
+                                        let id = b4.clone();
+                                        ask(format!("Delete the stat block \"{}\"?", b4), move || {
+                                            apply(tab, Change::Monster { edit: MonsterEdit::Delete { id } })
+                                        });
                                     }>"✕"</button>
                             </div>
                         }

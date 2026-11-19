@@ -317,6 +317,14 @@ pub struct OpenedDoc {
     pub warnings: Vec<String>,
 }
 
+/// One stat block as the compiler and LaTeX print it (encompile.preview): each page it
+/// takes, cropped to the block, as a PNG data URL.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Preview {
+    pub images: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
 /// Arguments for creating a new supplement.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NewSupplement {

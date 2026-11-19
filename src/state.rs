@@ -22,6 +22,8 @@ use crate::api;
 pub enum Side {
     Files,
     Structure,
+    /// The open stat block as it prints.
+    Preview,
 }
 
 /// An opened file and its tree's parent links.

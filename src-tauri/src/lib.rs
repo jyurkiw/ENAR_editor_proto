@@ -163,6 +163,18 @@ async fn ref_index(path: String, app: AppHandle) -> Result<shared::inline::RefIn
     .await
 }
 
+/// The stat block `monster` (its id) of the monster file at `path`, as the compiler and
+/// LaTeX print it, for the preview pane.
+#[tauri::command(rename_all = "snake_case")]
+async fn preview_statblock(path: String, monster: String, app: AppHandle) -> Result<shared::Preview, AppError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let p = state.project()?;
+        validate::preview(&path, &monster, &p, &state.validator)
+    })
+    .await
+}
+
 /// A logo a cover would print, as the compiler finds it: its src, or `file` (default the
 /// DMs Guild logo's) in the supplement's folder or the nearest one above.
 #[tauri::command(rename_all = "snake_case")]
@@ -229,6 +241,7 @@ pub fn run() {
             add_project_word,
             find_logo,
             monster_outline,
+            preview_statblock,
             pick_folder
         ])
         .run(tauri::generate_context!())

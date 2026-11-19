@@ -18,7 +18,7 @@ use shared::statblock::{self as sb, El, StatEdit, ROOT};
 use shared::Change;
 
 use crate::apply::apply;
-use crate::family_form::confirm;
+use crate::dialogs::ask;
 use crate::prose_editor::ChipEditor;
 use crate::state::DocTab;
 use crate::statblock_form::{card_bar, edit, flag_in, keys, pick_in, text_in, Card, Loc, Rows};
@@ -601,9 +601,10 @@ pub fn SectionElPage(tab: DocTab, key: Vec<usize>) -> impl IntoView {
     let k3 = StoredValue::new(key.clone());
     let t2 = tag.clone();
     let delete = move |_: MouseEvent| {
-        if confirm(&format!("Delete this {}?", label(&t2).to_lowercase())) {
-            edit(tab, StatEdit::Delete { child: ROOT, path: k3.get_value(), tag: t2.clone() });
-        }
+        let tag = t2.clone();
+        ask(format!("Delete this {}?", label(&t2).to_lowercase()), move || {
+            edit(tab, StatEdit::Delete { child: ROOT, path: k3.get_value(), tag })
+        });
     };
     let body = match tag.as_str() {
         "figure" => figure_fields(c, x),

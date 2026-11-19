@@ -17,11 +17,9 @@ use wasm_bindgen::JsCast;
 
 use crate::apply::apply;
 use crate::prose_editor::ChipEditor;
+use crate::dialogs::ask;
 use crate::state::DocTab;
 
-pub(crate) fn confirm(msg: &str) -> bool {
-    web_sys::window().and_then(|w| w.confirm_with_message(msg).ok()).unwrap_or(false)
-}
 
 fn edit(tab: DocTab, e: FamilyEdit) {
     apply(tab, Change::Family { edit: e });
@@ -288,9 +286,8 @@ fn delete_part(tab: DocTab, p: &PartView) {
     } else {
         format!("Delete this {what}?\n\n{}", p.summary)
     };
-    if confirm(&msg) {
-        edit(tab, FamilyEdit::DeletePart { at: p.at() });
-    }
+    let at = p.at();
+    ask(msg, move || edit(tab, FamilyEdit::DeletePart { at }));
 }
 
 /// The family's parts in file order: open, reorder, delete, add.
@@ -358,9 +355,8 @@ fn ParaRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, paras: Memo<Vec<Strin
         }
     };
     let delete = move |_: MouseEvent| {
-        if base.get_untracked().trim().is_empty() || confirm("Delete this paragraph?") {
-            edit(tab, FamilyEdit::DeletePara { at: at.get_value(), n });
-        }
+        let del = move || edit(tab, FamilyEdit::DeletePara { at: at.get_value(), n });
+        if base.get_untracked().trim().is_empty() { del() } else { ask("Delete this paragraph?", del) }
     };
     view! {
         <div node_ref=el class="body-block para" class:dirty=move || d.dirty() class:failed=move || d.failed()
@@ -754,9 +750,9 @@ fn EffectRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, effects: Memo<Vec<E
                     <button class="icon-btn danger" disabled=move || { busy.get() || count.get() <= 1 }
                         title=move || if count.get() <= 1 { "A lair needs at least one effect: delete the lair instead" } else { "Delete this effect" }
                         on:click=move |_: MouseEvent| {
-                            if confirm(&format!("Delete the effect \u{201c}{}\u{201d}?", m().name)) {
-                                edit(tab, FamilyEdit::DeleteEffect { at: at.get_value(), n });
-                            }
+                            ask(format!("Delete the effect \u{201c}{}\u{201d}?", m().name), move || {
+                                edit(tab, FamilyEdit::DeleteEffect { at: at.get_value(), n })
+                            });
                         }>"✕"</button>
                 </div>
             </div>
