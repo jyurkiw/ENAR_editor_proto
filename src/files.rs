@@ -95,7 +95,7 @@ fn fs_node(entry: FsEntry, depth: usize) -> AnyView {
 
     view! {
         <div class="node">
-            <div class=class style=indent(depth) title=path on:click=on_click on:dblclick=on_dblclick on:contextmenu=on_context>
+            <div class=class style=indent(depth) title=path.clone() data-path=path on:click=on_click on:dblclick=on_dblclick on:contextmenu=on_context>
                 <span class="icon">{icon}</span>
                 <span class="name">{name}</span>
             </div>

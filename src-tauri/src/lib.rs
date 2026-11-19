@@ -3,6 +3,7 @@
 //! The open project lives here, in [`AppState`]; the frontend asks for it with
 //! `current_project` and changes it with `open_project` / `configure_project`.
 
+mod e2e;
 mod words;
 mod fsops;
 mod library;
@@ -124,7 +125,9 @@ async fn apply_change(path: String, expected: String, change: Change, app: AppHa
     blocking(move || {
         let state = app.state::<AppState>();
         let p = state.project()?;
-        validate::apply_edit(&path, &expected, &p, &state.validator, |src| change.plan(src))
+        let r = validate::apply_edit(&path, &expected, &p, &state.validator, |src| change.plan(src));
+        e2e::log_change(&change, &r);
+        r
     })
     .await
 }
@@ -200,6 +203,9 @@ fn monster_outline(doc_path: String, file: String) -> Result<shared::family::Out
 /// A native folder picker. None when cancelled.
 #[tauri::command(rename_all = "snake_case")]
 async fn pick_folder(title: String, start: Option<String>, app: AppHandle) -> Option<String> {
+    if let Some(answer) = e2e::next_pick() {
+        return answer;
+    }
     let mut dialog = app.dialog().file().set_title(title);
     if let Some(s) = start.filter(|s| std::path::Path::new(s).is_dir()) {
         dialog = dialog.set_directory(s);
@@ -207,14 +213,35 @@ async fn pick_folder(title: String, start: Option<String>, app: AppHandle) -> Op
     dialog.blocking_pick_folder().and_then(|p| p.into_path().ok()).map(|p| project::path_str(&p))
 }
 
+/// Queues folder picker answers for the e2e tests (a build with --features e2e only).
+#[tauri::command(rename_all = "snake_case")]
+fn e2e_queue_pick(paths: Vec<String>) -> Result<(), AppError> {
+    e2e::queue_picks(paths)
+}
+
+/// The app's settings folder: `ENIGMA_CONFIG_DIR` when set (the e2e tests give each run
+/// its own), else the platform's.
+fn config_dir(app: &tauri::App) -> tauri::Result<PathBuf> {
+    match std::env::var_os("ENIGMA_CONFIG_DIR") {
+        Some(d) if !d.is_empty() => Ok(PathBuf::from(d)),
+        _ => app.path().app_config_dir(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .on_page_load(|_webview, _payload| {
+            #[cfg(feature = "e2e")]
+            if matches!(_payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                let _ = _webview.eval(e2e::HOOK_JS);
+            }
+        })
         .setup(|app| {
             let cache = app.path().app_cache_dir()?;
-            let config = app.path().app_config_dir()?;
+            let config = config_dir(app)?;
             std::fs::create_dir_all(&config)?;
             app.manage(AppState {
                 project: Mutex::new(None),
@@ -242,7 +269,8 @@ pub fn run() {
             find_logo,
             monster_outline,
             preview_statblock,
-            pick_folder
+            pick_folder,
+            e2e_queue_pick
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Enigma editor");

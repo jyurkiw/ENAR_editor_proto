@@ -1,0 +1,18 @@
+[project]
+name = "enigma-editor-e2e"
+version = "0.1.0"
+description = "Playwright end-to-end tests for the Enigma Narrative editor"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.48",
+    "pytest>=8",
+    "pillow>=10",
+    "lxml>=5",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+addopts = "-p no:cacheprovider"
