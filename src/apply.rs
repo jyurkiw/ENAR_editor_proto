@@ -59,6 +59,7 @@ fn pick(change: &Change, on_root: bool, d: &DocData) -> Option<usize> {
             ChapterEdit::Update { model, .. } => chapter::find_chapter(&d.source, &d.nodes, &model.name),
             ChapterEdit::Add { name, .. } => chapter::find_chapter(&d.source, &d.nodes, name),
             ChapterEdit::Delete { .. } => Some(0),
+            ChapterEdit::Move { name, .. } => chapter::find_chapter(&d.source, &d.nodes, name),
         },
         // The selection stays: an entry the ref generator added mustn't move the page.
         Change::Reference { .. } => None,
@@ -377,6 +378,12 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 });
             }
             TableEdit::AddCell { .. } | TableEdit::Spans { .. } => {}
+            TableEdit::DeleteCell { at, part, row, col } => {
+                // The row's cells from here on shifted left.
+                let (at, part, row, from) = (at.clone(), *part, *row, *col);
+                tab.cell_drafts.update(|d| d.retain(|(a, p, r, c), _| *a != at || *p != part || *r != row || *c < from));
+                tab.cell_failed.update(|f| f.retain(|(a, p, r, c)| *a != at || *p != part || *r != row || *c < from));
+            }
             TableEdit::AddRow { at, part, after } => {
                 // Rows from here on shifted.
                 let (at, part, from) = (at.clone(), *part, after.map_or(0, |a| a + 1));
@@ -448,4 +455,16 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
             }
         }
     }
+}
+
+/// Runs `f` (a form's apply when its box loses focus) a frame later, and only if `el` is
+/// still on the page: a form being taken down (a switch to the Source view, another tab, a
+/// redraw) loses its focus too, and that isn't leaving it.
+pub fn if_still_shown(el: leptos::prelude::NodeRef<leptos::html::Div>, f: impl FnOnce() + 'static) {
+    request_animation_frame(move || {
+        let shown = el.try_get_untracked().flatten().is_some_and(|e| e.is_connected());
+        if shown {
+            f();
+        }
+    });
 }

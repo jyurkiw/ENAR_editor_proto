@@ -62,4 +62,5 @@ with dev builds.
 - `src/` Leptos frontend
 
 Tests: `cargo test -p shared -p enigma-editor`; against the real repo:
-`cargo test -p enigma-editor real -- --ignored`.
+`cargo test -p enigma-editor real -- --ignored`. End-to-end tests (Playwright driving the
+built app): `cd e2e; uv run pytest`, see [e2e/README.md](e2e/README.md).

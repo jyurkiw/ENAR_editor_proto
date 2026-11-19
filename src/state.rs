@@ -165,9 +165,89 @@ pub struct DocTab {
     pub problems: RwSignal<Vec<Problem>>,
     pub problem_source: RwSignal<String>,
     pub problems_open: RwSignal<bool>,
+    /// The file changed on disk since the tab read it: what happened, for the notice.
+    pub disk: RwSignal<Option<DiskNote>>,
+}
+
+/// What the tab did about its file changing on disk.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DiskNote {
+    /// Read again (nothing was unapplied). `gone` names the element that was selected,
+    /// when the new file doesn't have it any more.
+    Reloaded { gone: Option<String> },
+    /// Not read again: the tab has unapplied edits, which reading it would throw away.
+    Changed { edits: usize },
+    /// Changed, and the new text can't be opened (not well-formed, or fails its schema).
+    Broken(String),
 }
 
 impl DocTab {
+    /// How many unapplied edits the tab's forms hold (drafts, and reference cards not yet
+    /// added).
+    pub fn unapplied(&self) -> usize {
+        self.cover_draft.with_untracked(|d| usize::from(d.is_some()))
+            + self.chapter_drafts.with_untracked(|d| d.len())
+            + self.ref_drafts.with_untracked(|d| d.len())
+            + self.ref_new.with_untracked(|d| d.len())
+            + self.header_drafts.with_untracked(|d| d.len())
+            + self.p_drafts.with_untracked(|d| d.len())
+            + self.table_drafts.with_untracked(|d| d.len())
+            + self.th_drafts.with_untracked(|d| d.len())
+            + self.cell_drafts.with_untracked(|d| d.len())
+            + self.li_drafts.with_untracked(|d| d.len())
+            + self.box_drafts.with_untracked(|d| d.len())
+            + self.raw_drafts.with_untracked(|d| d.len())
+            + self.fam_drafts.with_untracked(|d| d.len())
+    }
+
+    /// Throws away every unapplied edit (before reading the file again).
+    pub fn discard_drafts(&self) {
+        self.cover_draft.set(None);
+        self.chapter_drafts.set(Default::default());
+        self.ref_drafts.set(Default::default());
+        self.ref_new.set(Default::default());
+        self.header_drafts.set(Default::default());
+        self.p_drafts.set(Default::default());
+        self.table_drafts.set(Default::default());
+        self.th_drafts.set(Default::default());
+        self.cell_drafts.set(Default::default());
+        self.li_drafts.set(Default::default());
+        self.box_drafts.set(Default::default());
+        self.raw_drafts.set(Default::default());
+        self.fam_drafts.set(Default::default());
+    }
+
+    /// Reads the file again from disk, keeping the tree's state and the selection where
+    /// they can be kept, and says what changed.
+    pub fn reload(&self) {
+        let tab = *self;
+        let path = self.data.with_untracked(|d| d.path.clone());
+        spawn_local(async move {
+            match api::open_file(&path).await {
+                Ok(doc) => {
+                    let old = tab.data.get_untracked();
+                    let sel = tab.selected.get_untracked();
+                    let (key, tag) = (old.key_of(sel), old.nodes[sel].tag.clone());
+                    // Its start tag, attributes and all: the same element, not only one
+                    // of the same kind in its place.
+                    let open_of = |d: &DocData, i: usize| d.source[d.nodes[i].start..].split('>').next().unwrap_or("").to_string();
+                    let was = open_of(&old, sel);
+                    tab.discard_drafts();
+                    tab.replace_doc(doc, |_| None);
+                    // The selection survives if the same kind of element is still there.
+                    let new = tab.data.get_untracked();
+                    let at = new.idx_of(&key);
+                    let kept = new.key_of(at) == key && new.nodes[at].tag == tag && open_of(&new, at) == was;
+                    tab.disk.set(Some(DiskNote::Reloaded { gone: (!kept).then(|| tag) }));
+                    if matches!(new.kind, shared::DocKind::Supplement | shared::DocKind::MagicItem | shared::DocKind::Spell) {
+                        tab.refresh_refs();
+                    }
+                }
+                Err(e) => tab.disk.set(Some(DiskNote::Broken(std::iter::once(e.message).chain(e.details).collect::<Vec<_>>().join(" ")))),
+            }
+        });
+    }
+
     fn new(id: u32, doc: OpenedDoc) -> Self {
         DocTab {
             id,
@@ -203,6 +283,7 @@ impl DocTab {
             fam_drafts: RwSignal::new(HashMap::new()),
             fam_failed: RwSignal::new(HashSet::new()),
             refs: RwSignal::new(None),
+            disk: RwSignal::new(None),
             applying: RwSignal::new(false),
             queue: StoredValue::new(Vec::new()),
             problems: RwSignal::new(Vec::new()),
@@ -422,6 +503,46 @@ impl AppCtx {
                 Err(e) => self.show_error(e),
             }
         });
+    }
+
+    /// Checks each open file against the disk; a changed one is read again, or, when its
+    /// tab has unapplied edits, flagged instead. Runs on focus and every few seconds.
+    pub fn check_disk(&self) {
+        let tabs = self.tabs.get_untracked();
+        for tab in tabs {
+            if tab.applying.get_untracked() {
+                continue;
+            }
+            let (path, source) = tab.data.with_untracked(|d| (d.path.clone(), d.source.clone()));
+            spawn_local(async move {
+                let Ok(text) = api::read_text(&path).await else { return };
+                // An apply may have finished meanwhile: compare with the tab as it is now.
+                let now = tab.data.try_with_untracked(|d| d.source.clone());
+                if now.as_deref() != Some(source.as_str()) || text == source || tab.applying.get_untracked() {
+                    return;
+                }
+                let edits = tab.unapplied();
+                if edits == 0 {
+                    tab.reload();
+                } else if !matches!(tab.disk.get_untracked(), Some(DiskNote::Changed { .. })) {
+                    tab.disk.set(Some(DiskNote::Changed { edits }));
+                }
+            });
+        }
+    }
+
+    /// Closes a tab, asking first when it has unapplied edits (which closing throws away).
+    pub fn close_tab_asking(&self, id: u32) {
+        let app: AppCtx = *self;
+        let Some(tab) = self.tabs.with_untracked(|t| t.iter().find(|t| t.id == id).copied()) else { return };
+        let n = tab.unapplied();
+        if n == 0 {
+            app.close_tab(id);
+            return;
+        }
+        let name = tab.doc_untracked().name.clone();
+        let what = if n == 1 { "1 unapplied edit".to_string() } else { format!("{n} unapplied edits") };
+        crate::dialogs::ask(format!("Close {name}? Its {what} will be lost."), move || app.close_tab(id));
     }
 
     pub fn close_tab(&self, id: u32) {

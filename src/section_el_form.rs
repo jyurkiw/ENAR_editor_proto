@@ -66,6 +66,8 @@ pub fn add(tab: DocTab, at: Container, after: Option<usize>, tag: &str) {
     let Some(root) = sb::read(&d.source, ROOT) else { return };
     let chapter = match &at {
         Container::Section { chapter, .. } | Container::Sidebar { chapter, .. } => root.kids.iter().position(|k| k.tag == "chapter" && k.get("name") == chapter),
+        // The description takes paragraphs and lists only: no section blocks.
+        Container::Description => None,
     };
     let Some(chapter) = chapter else { return };
     let (mut pre, el) = match tag {

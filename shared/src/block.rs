@@ -20,6 +20,8 @@ use crate::StructNode;
 pub enum Container {
     Section { chapter: String, name: String, nth: usize },
     Sidebar { chapter: String, id: String },
+    /// The supplement's `<productDescription>`: paragraphs and lists, no header.
+    Description,
 }
 
 impl Container {
@@ -27,6 +29,7 @@ impl Container {
         match self {
             Container::Section { .. } => "section",
             Container::Sidebar { .. } => "sidebar",
+            Container::Description => "productDescription",
         }
     }
 }
@@ -115,13 +118,18 @@ pub fn find(source: &str, nodes: &[StructNode], at: &Container) -> Option<usize>
                 .copied()
                 .find(|c| nodes[*c].tag == "sidebar" && attr(source, &nodes[*c], "id").as_deref() == Some(id))
         }
+        Container::Description => nodes.first()?.children.iter().copied().find(|c| nodes[*c].tag == "productDescription"),
     }
 }
 
-/// The container a node is, if it's a section or sidebar directly in a top-level chapter.
+/// The container a node is, if it's a section or sidebar directly in a top-level chapter,
+/// or the supplement's product description.
 pub fn container_of(source: &str, nodes: &[StructNode], parents: &[Option<usize>], idx: usize) -> Option<Container> {
     let n = nodes.get(idx)?;
     let ch = parents.get(idx).copied().flatten()?;
+    if n.tag == "productDescription" && ch == 0 && nodes[0].tag == "supplement" {
+        return Some(Container::Description);
+    }
     if nodes[ch].tag != "chapter" || !nodes[0].children.contains(&ch) {
         return None;
     }
@@ -346,6 +354,9 @@ pub fn plan(source: &str, e: &BlockEdit) -> Result<String, String> {
     let c = &nodes[ci];
     match e {
         BlockEdit::Header { header, .. } => {
+            if *at == Container::Description {
+                return Err("the product description has no header".into());
+            }
             let text = edit::apply(source, &header_splices(source, &nodes, ci, header)?)?;
             match at {
                 Container::Sidebar { id, .. } if *id != header.key => rename_sidebar_links(&text, id, &header.key),
@@ -517,6 +528,30 @@ mod tests {
         let out = plan(SRC, &BlockEdit::Move { at: sec(0), child: 1, before: None }).unwrap();
         let (_, b) = blocks(&out, &sec(0));
         assert_eq!(b.last().unwrap().text, "One <b>bold</b> line.");
+    }
+
+    #[test]
+    fn the_product_description() {
+        let d = Container::Description;
+        let src = "<supplement>\n    <productDescription/>\n    <chapter name=\"c\"/>\n</supplement>\n";
+        let out = plan(src, &BlockEdit::AddP { at: d.clone(), after: None }).unwrap();
+        let out = plan(&out, &BlockEdit::SetP { at: d.clone(), child: 0, text: "A town in three pieces.".into() }).unwrap();
+        let out = plan(&out, &BlockEdit::AddList { at: d.clone(), after: Some(0) }).unwrap();
+        let (h, b) = blocks(&out, &d);
+        assert!(h.title.is_empty() && h.key.is_empty());
+        assert_eq!(b.iter().map(|b| b.tag.as_str()).collect::<Vec<_>>(), ["p", "list"], "{out}");
+        assert_eq!(b[0].text, "A town in three pieces.");
+        // The tree finds it as a container, and it has no header to set.
+        let nodes = parse(&out).unwrap().nodes;
+        let mut parents = vec![None; nodes.len()];
+        for (p, n) in nodes.iter().enumerate() {
+            for c in &n.children {
+                parents[*c] = Some(p);
+            }
+        }
+        let i = nodes.iter().position(|n| n.tag == "productDescription").unwrap();
+        assert_eq!(container_of(&out, &nodes, &parents, i), Some(Container::Description));
+        assert!(plan(&out, &BlockEdit::Header { at: d, header: Header::default() }).is_err());
     }
 
     #[test]

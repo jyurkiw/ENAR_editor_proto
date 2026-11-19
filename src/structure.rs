@@ -46,6 +46,7 @@ fn struct_node(tab: DocTab, data: Arc<DocData>, idx: usize, depth: usize) -> Any
     let has_children = !node.children.is_empty();
     let tag = node.tag.clone();
     let label = node.label.clone();
+    let (data_tag, data_label) = (tag.clone(), label.clone());
     let line = node.line;
     let expanded = tab.expanded;
     let selected = tab.selected;
@@ -85,6 +86,8 @@ fn struct_node(tab: DocTab, data: Arc<DocData>, idx: usize, depth: usize) -> Any
         <div class="node">
             <div
                 class="row element"
+                data-tag=data_tag
+                data-label=data_label
                 class:selected=move || selected.get() == idx
                 style=indent(depth)
                 title=format!("line {line}")

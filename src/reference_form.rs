@@ -30,7 +30,7 @@ fn known_attrs(tag: &str) -> &'static [&'static str] {
         "spell" => &["id", "name", "src", "file"],
         "item" => &["id", "name", "displayName", "src", "file"],
         "noun" => &["id", "name", "displayName", "shortName", "kind"],
-        "image" => &["id", "src", "name", "credit", "height", "span", "placement", "align"],
+        "image" => &["id", "src", "name", "credit", "kind", "height", "span", "placement", "align"],
         "data" => &["id", "value"],
         _ => &["id"],
     }
@@ -118,6 +118,11 @@ impl Card {
     }
 }
 
+thread_local! {
+    /// The key of the card "+ Add" just made, until its Id field has the focus.
+    static JUST_ADDED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 #[component]
 fn Field(
     card: Card,
@@ -136,10 +141,22 @@ fn Field(
         }
         check.and_then(|c| c(&v))
     };
+    // The card just added focuses its Id as it appears, so typing straight after "+ Add"
+    // lands there (a frame later, fast typing went elsewhere).
+    let input = NodeRef::<html::Input>::new();
+    if attr == "id" {
+        input.on_load(move |el| {
+            let key = card.key.get_value();
+            if JUST_ADDED.with(|j| j.borrow().as_deref() == Some(key.as_str())) {
+                JUST_ADDED.with(|j| *j.borrow_mut() = None);
+                let _ = el.focus();
+            }
+        });
+    }
     view! {
         <label class="field">
             <span class="field-label">{label}{required.then_some(" *")}</span>
-            <input type="text" placeholder=placeholder class:invalid=move || problem().is_some()
+            <input node_ref=input type="text" placeholder=placeholder class:invalid=move || problem().is_some()
                 data-attr=attr
                 prop:value=value
                 on:input=move |ev| {
@@ -286,6 +303,8 @@ fn fields(card: Card, tag: &str, monster_ids: Memo<Vec<String>>, doc_dir: Stored
                     <div class="field-row">
                         <Field card attr="name" label="Title" hint="The artwork's title, printed by <imageCredits/>"/>
                         <Field card attr="credit" label="Artist" hint="Printed by <imageCredits/>"/>
+                        <Choice card attr="kind" label="Kind" options=vec![(String::new(), "art (default)".into()), ("art".into(), "art".into()), ("map".into(), "map".into())]
+                            hint="A map is credited as a map, and the datasheet lists it to check"/>
                     </div>
                     <div class="field-row">
                         <Field card attr="height" label="Height" placeholder="natural" check=height_problem hint="4in, 10cm, or 45% of the text height"/>
@@ -413,8 +432,12 @@ fn RefCard(
             .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
             .zip(el.get())
             .is_some_and(|(n, card_el)| card_el.contains(Some(&n)));
-        if !inside && card.dirty() && card.model().missing().is_empty() {
-            card.apply();
+        if !inside {
+            crate::apply::if_still_shown(el, move || {
+                if card.dirty() && card.model().missing().is_empty() {
+                    card.apply();
+                }
+            });
         }
     };
     let on_key = move |ev: KeyboardEvent| {
@@ -506,7 +529,7 @@ fn RefCard(
 
     view! {
         <div node_ref=el id=move || format!("ref-card-{}", key.get_value())
-            class=move || format!("ref-card {}", marker())
+            class="ref-card" class:drop-before=move || marker() == "drop-before" class:drop-after=move || marker() == "drop-after"
             class:open=open class:dirty=move || card.dirty() class:failed=failed class:dragging=move || drag.with(|d| d.as_deref() == Some(key.get_value().as_str()))
             on:focusout=on_focusout on:keydown=on_key on:dragover=on_dragover on:drop=on_drop
         >
@@ -595,6 +618,7 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
         let n = counter.get_value() + 1;
         counter.set_value(n);
         let key = format!("new:{n}");
+        JUST_ADDED.with(|j| *j.borrow_mut() = Some(key.clone()));
         tab.ref_drafts.update(|d| {
             d.insert(key.clone(), RefEntry::new(tag));
         });
@@ -605,13 +629,10 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
         filter.set(String::new());
         request_animation_frame(move || {
             let doc = web_sys::window().and_then(|w| w.document());
+            // Its Id field focuses itself as it appears (see Field): focusing it here, a
+            // frame later, took the focus from wherever typing had gone meanwhile.
             if let Some(card) = doc.and_then(|d| d.get_element_by_id(&format!("ref-card-{key}"))) {
                 card.scroll_into_view();
-                if let Ok(Some(input)) = card.query_selector("input[data-attr=id]") {
-                    if let Ok(h) = input.dyn_into::<web_sys::HtmlElement>() {
-                        let _ = h.focus();
-                    }
-                }
             }
         });
     };
@@ -630,7 +651,7 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
     view! {
         <div class="ref-editor">
             <div class="ref-toolbar">
-                <div class="add-wrap">
+                <div class="add-wrap" on:keydown=move |ev: leptos::ev::KeyboardEvent| if ev.key() == "Escape" && menu.get_untracked() { ev.stop_propagation(); menu.set(false) }>
                     <button class="primary" on:click=move |_| menu.update(|m| *m = !*m)>"+ Add ▾"</button>
                     <Show when=move || menu.get()>
                         <div class="menu-backdrop" on:click=move |_| menu.set(false)></div>

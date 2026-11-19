@@ -139,6 +139,26 @@ fn render_html(env: &ProseEnv, xml: &str) -> Result<String, String> {
     Ok(h)
 }
 
+/// Gives each chip in the box the label and look of its ref as the document has it now.
+fn relabel(env: &ProseEnv, div: &web_sys::HtmlElement) {
+    let Ok(chips) = div.query_selector_all("[data-xml]") else { return };
+    for i in 0..chips.length() {
+        let Some(chip) = chips.item(i).and_then(|c| c.dyn_into::<web_sys::Element>().ok()) else { continue };
+        let Some(xml) = chip.get_attribute("data-xml") else { continue };
+        let Some(t) = prose::tokenize(&xml).ok().and_then(|t| t.into_iter().next()) else { continue };
+        let Tok::Tag { tag, .. } = &t else { continue };
+        let (label, ok) = chip_label(env, &t);
+        let label = if label.is_empty() { tag.clone() } else { label };
+        if chip.text_content().as_deref() != Some(label.as_str()) {
+            chip.set_text_content(Some(&label));
+        }
+        let class = format!("chip-tag chip-{}{}", prose::chip_kind(tag), if ok { "" } else { " chip-bad" });
+        if chip.get_attribute("class").as_deref() != Some(class.as_str()) {
+            let _ = chip.set_attribute("class", &class);
+        }
+    }
+}
+
 /// The box's XML, read back from its DOM.
 fn serialize(node: &web_sys::Node) -> String {
     let mut out = String::new();
@@ -646,6 +666,9 @@ pub fn ChipEditor(
         let node: &web_sys::Node = &div;
         let focused = document().and_then(|d| d.active_element()).is_some_and(|a| a.is_same_node(Some(node)));
         if last.get_value().as_deref() == Some(v.as_str()) && focused {
+            // Being typed in: leave the text and the caret alone, but the names the chips
+            // show may have changed (an entry just made from the selection).
+            relabel(&env, &div);
             return;
         }
         match render_html(&env, &v) {
@@ -664,6 +687,20 @@ pub fn ChipEditor(
         last.set_value(Some(xml.clone()));
         set.run(xml);
         check();
+    };
+    // Closes the panel with the focus back in the box first. The panel's control may have
+    // the focus; removed while focused, it would take the focus out of the box, which counts
+    // as leaving it (a paragraph applies on that). Esc and Cancel also put the caret back.
+    let close_panel = move || {
+        if let Some(div) = el.get_untracked() {
+            let _ = div.focus();
+            let range = saved.get_value().filter(|r| r.common_ancestor_container().ok().is_some_and(|n| div.contains(Some(&n))));
+            if let (Some(r), Some(sel)) = (range, web_sys::window().and_then(|w| w.get_selection().ok().flatten())) {
+                let _ = sel.remove_all_ranges();
+                let _ = sel.add_range(&r);
+            }
+        }
+        panel.set(Panel::None);
     };
     // Insert a chip where the caret was (replacing the selection), then emit.
     let insert_xml = move |xml: String| {
@@ -690,10 +727,9 @@ pub fn ChipEditor(
             }
         }
         saved.set_value(None);
-        panel.set(Panel::None);
-        // Focus and place the caret before emitting: focusing alone puts the caret at the
-        // start of the box, and the redraw effect leaves a focused box alone.
-        let _ = div.focus();
+        close_panel();
+        // Place the caret before emitting: focusing alone puts it at the start of the box,
+        // and the redraw effect leaves a focused box alone.
         caret_after(&span);
         emit();
     };
@@ -735,6 +771,10 @@ pub fn ChipEditor(
             let takes_text = env.palette.spec(tag).is_some_and(|s| s.text.is_some());
             tag_attrs.set(Vec::new());
             tag_text.set(if takes_text { query.get_untracked() } else { String::new() });
+            // The generator's search box goes: hold the focus in the box until the form has it.
+            if let Some(div) = el.get_untracked() {
+                let _ = div.focus();
+            }
             panel.set(Panel::Tag { tag: tag.to_string(), attrs: Vec::new(), text: String::new(), chip: None });
             focus_panel();
         }
@@ -970,7 +1010,7 @@ pub fn ChipEditor(
                         }
                     }
                 }
-                panel.set(Panel::None);
+                close_panel();
                 last.set_value(None);
                 set.run(tokens_xml(&toks));
             }
@@ -985,7 +1025,7 @@ pub fn ChipEditor(
             k += 1;
             k - 1 != n
         }).collect();
-        panel.set(Panel::None);
+        close_panel();
         last.set_value(None);
         set.run(tokens_xml(&kept));
     };
@@ -1006,7 +1046,7 @@ pub fn ChipEditor(
             emit();
         } else if k == "Escape" && panel.with_untracked(|p| *p != Panel::None) {
             ev.stop_propagation();
-            panel.set(Panel::None);
+            close_panel();
         }
     };
     let gen_key = move |ev: KeyboardEvent| {
@@ -1029,7 +1069,7 @@ pub fn ChipEditor(
             }
             "Escape" => {
                 ev.stop_propagation();
-                panel.set(Panel::None);
+                close_panel();
             }
             _ => {}
         }
@@ -1139,7 +1179,7 @@ pub fn ChipEditor(
                 Panel::Variable { value } => view! {
                     <div node_ref=panel_el class="insert-panel" on:keydown=move |ev: KeyboardEvent| {
                         if ev.key() == "Enter" { ev.prevent_default(); ev.stop_propagation(); save_variable(); }
-                        if ev.key() == "Escape" { ev.stop_propagation(); panel.set(Panel::None); }
+                        if ev.key() == "Escape" { ev.stop_propagation(); close_panel(); }
                     }>
                         <span class="insert-title">"Turn into variable"</span>
                         <label class="pill-field">"Name"
@@ -1149,7 +1189,7 @@ pub fn ChipEditor(
                         <span class="hint">"Value: \u{201c}" {value.trim().to_string()} "\u{201d}. The text will refer to it by name; letters only."</span>
                         {move || form_err.get().map(|e| view! { <span class="hint bad">{e}</span> })}
                         <button type="button" class="small primary" on:click=move |_| save_variable()>"Make variable"</button>
-                        <button type="button" class="small" on:click=move |_| panel.set(Panel::None)>"Cancel"</button>
+                        <button type="button" class="small" on:click=move |_| close_panel()>"Cancel"</button>
                     </div>
                 }.into_any(),
                 Panel::Noun { text } => {
@@ -1157,7 +1197,7 @@ pub fn ChipEditor(
                     view! {
                         <div node_ref=panel_el class="insert-panel" on:keydown=move |ev: KeyboardEvent| {
                             if ev.key() == "Enter" { ev.prevent_default(); ev.stop_propagation(); save_noun(); }
-                            if ev.key() == "Escape" { ev.stop_propagation(); panel.set(Panel::None); }
+                            if ev.key() == "Escape" { ev.stop_propagation(); close_panel(); }
                         }>
                             <span class="insert-title">"Turn into a person, place or thing"</span>
                             <label class="pill-field">"Name"
@@ -1180,7 +1220,7 @@ pub fn ChipEditor(
                             }}
                             {move || form_err.get().map(|e| view! { <span class="hint bad">{e}</span> })}
                             <button type="button" class="small primary" on:click=move |_| save_noun()>"Make it"</button>
-                            <button type="button" class="small" on:click=move |_| panel.set(Panel::None)>"Cancel"</button>
+                            <button type="button" class="small" on:click=move |_| close_panel()>"Cancel"</button>
                         </div>
                     }.into_any()
                 }
@@ -1189,7 +1229,7 @@ pub fn ChipEditor(
                     view! {
                         <div node_ref=panel_el class="insert-panel" on:keydown=move |ev: KeyboardEvent| {
                             if ev.key() == "Enter" { ev.prevent_default(); ev.stop_propagation(); save_tag(); }
-                            if ev.key() == "Escape" { ev.stop_propagation(); panel.set(Panel::None); }
+                            if ev.key() == "Escape" { ev.stop_propagation(); close_panel(); }
                         }>
                             <span class="insert-title">{spec.map(|s| s.label).unwrap_or("Tag")}</span>
                             {match spec {
@@ -1200,7 +1240,7 @@ pub fn ChipEditor(
                                 <button type="button" class="small primary" on:click=move |_| save_tag()>{if chip.is_some() { "Save" } else { "Insert" }}</button>
                             })}
                             {chip.is_some().then(|| view! { <button type="button" class="small danger" on:click=move |_| remove_tag()>"Remove"</button> })}
-                            <button type="button" class="small" on:click=move |_| panel.set(Panel::None)>"Cancel"</button>
+                            <button type="button" class="small" on:click=move |_| close_panel()>"Cancel"</button>
                         </div>
                     }.into_any()
                 }

@@ -12,13 +12,20 @@ use crate::state::{ctx, Dialog};
 /// Asks OK/Cancel and waits for the answer. The dialog plugin replaces `window.confirm`
 /// with an async one (a Promise of the answer), so a plain `confirm_with_message` sees
 /// the Promise, reads it as Cancel, and returns before the dialog is even answered.
+///
+/// A build with the backend's `e2e` feature defines `window.__enigmaE2E`; its `confirm`
+/// answers instead, so the Playwright tests can say OK or Cancel and see the message.
 pub async fn confirm(msg: &str) -> bool {
     use wasm_bindgen::JsCast;
     let Some(w) = web_sys::window() else { return false };
-    let Some(f) = js_sys::Reflect::get(&w, &"confirm".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) else {
+    let target: wasm_bindgen::JsValue = js_sys::Reflect::get(&w, &"__enigmaE2E".into())
+        .ok()
+        .filter(|h| h.is_object())
+        .unwrap_or_else(|| w.clone().into());
+    let Some(f) = js_sys::Reflect::get(&target, &"confirm".into()).ok().and_then(|f| f.dyn_into::<js_sys::Function>().ok()) else {
         return false;
     };
-    let Ok(v) = f.call1(&w, &msg.into()) else { return false };
+    let Ok(v) = f.call1(&target, &msg.into()) else { return false };
     let v = match v.dyn_into::<js_sys::Promise>() {
         Ok(p) => wasm_bindgen_futures::JsFuture::from(p).await.unwrap_or(wasm_bindgen::JsValue::FALSE),
         Err(v) => v,

@@ -1,0 +1,151 @@
+<monsters xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../schemas/monster-template-schema.xsd">
+  <name>Forkjaw Pike</name>
+  <shortNoun>pike</shortNoun>
+  <brief>The river’s oldest grudge</brief>
+  <habitats>
+    <habitat name="River"/>
+    <habitat name="Lake"/>
+    <treasure name="None"/>
+  </habitats>
+  <quoteBox>
+    <quote>
+      <p>Never trust a fish with two jaws. It has twice the reasons to bite.</p>
+    </quote>
+    <attribution name="A Millward fisher"/>
+  </quoteBox>
+  <description id="pike-lore">
+    <p>Forkjaw pike grow for as long as they live, and some of them have lived a long time.</p>
+    <p>They hunt where the current is fastest, below weirs and mill races.</p>
+  </description>
+  <image src="art/forkjaw-pike.png" alt="A long grey pike with a forked lower jaw" name="Forkjaw Pike" credit="Slop Art Studio">
+    <cutline>A forkjaw, drawn from memory by someone who got away.</cutline>
+  </image>
+  <distinctionTable>
+    <header>
+      <dh>1d4</dh>
+      <dh>Distinction</dh>
+    </header>
+    <body>
+      <tr>
+        <td>1</td>
+        <td>A hook still in its lip</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>One eye, milky white</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>A ring of rust-coloured scales</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Unusually polite</td>
+      </tr>
+    </body>
+  </distinctionTable>
+  <lair id="lair" name="The Matriarch’s Pool">
+    <description>
+      <p>The oldest forkjaw keeps a deep pool below the weir.</p>
+    </description>
+    <effects>
+      <effect id="undertow" name="Undertow">Swimmers are pulled 10 feet toward the pool’s centre.</effect>
+      <effect id="silt" name="Silt Cloud">The water turns brown; everything in it is lightly obscured.</effect>
+    </effects>
+    <effectEndVerb>dies</effectEndVerb>
+  </lair>
+  <monster id="forkjaw-pike">
+    <name>Forkjaw Pike</name>
+    <heading>
+      <sizes>
+        <size>Large</size>
+      </sizes>
+      <type>Beast</type>
+      <alignment>Unaligned</alignment>
+      <armorClass>14</armorClass>
+      <initiativeBonus/>
+      <hitDice>5</hitDice>
+      <proficiencyBonus>2</proficiencyBonus>
+      <speeds>
+        <speed id="ground" name="ground" value="10"/>
+        <speed id="swim" name="swim" value="40"/>
+      </speeds>
+    </heading>
+    <statBlock>
+      <stat name="str" value="16"/>
+      <stat name="dex" value="14" saveProficiency="true"/>
+      <stat name="con" value="15"/>
+      <stat name="int" value="1"/>
+      <stat name="wis" value="12"/>
+      <stat name="cha" value="3"/>
+    </statBlock>
+    <attributes>
+      <skills>
+        <skill name="stealth" stat="dex" proficiency="true"/>
+      </skills>
+      <resistances>
+        <resistance name="cold"/>
+      </resistances>
+      <gear>
+        <item name="Rusted fish hook" quantity="3"/>
+      </gear>
+      <senses>
+        <sense name="darkvision" range="30"/>
+      </senses>
+      <challengeRatings>
+        <challengeRating value="2"/>
+      </challengeRatings>
+    </attributes>
+    <traits>
+      <trait name="Blood Frenzy">
+        <description>The <shortNounRef/> has Advantage on attack rolls against any creature that doesn’t have all its Hit Points.</description>
+      </trait>
+      <trait name="Water Breathing">
+        <description>The <shortNounRef/> can breathe only underwater.</description>
+      </trait>
+    </traits>
+    <actions>
+      <action id="thrash" name="Thrash">The pike thrashs.</action>
+      <attack id="bite" name="Bite" type="melee" reach="5" damage="2d6" damageType="piercing">
+        <hit>, and the target has the Grappled condition (escape <dc stat="str"/>).</hit>
+      </attack>
+    </actions>
+    <legendaryActions>
+      <uses>
+        <number value="2"/>
+      </uses>
+      <actionRef ref="bite" name="Snap" cost="2"/>
+    </legendaryActions>
+  </monster>
+  <monster id="forkjaw-matriarch">
+    <name>Forkjaw Matriarch</name>
+    <lairRef ref="lair"/>
+    <heading>
+      <sizes>
+        <size>Huge</size>
+      </sizes>
+      <type>Beast</type>
+      <alignment>Neutral</alignment>
+      <armorClass>10</armorClass>
+      <initiativeBonus/>
+      <hitDice>1</hitDice>
+      <proficiencyBonus>2</proficiencyBonus>
+      <speeds>
+        <speed id="ground" name="ground" value="30"/>
+      </speeds>
+    </heading>
+    <statBlock>
+      <stat name="str" value="10"/>
+      <stat name="dex" value="10"/>
+      <stat name="con" value="10"/>
+      <stat name="int" value="10"/>
+      <stat name="wis" value="10"/>
+      <stat name="cha" value="10"/>
+    </statBlock>
+    <attributes>
+      <challengeRatings>
+        <challengeRating value="5"/>
+      </challengeRatings>
+    </attributes>
+  </monster>
+</monsters>
