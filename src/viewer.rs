@@ -148,6 +148,43 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     }
 }
 
+/// The tab's unapplied text edits as the changes their forms would apply: paragraphs and
+/// section headers, table info, headers and cells, list items, box text, reference cards.
+/// (Stat block, item and family cards hold whole-element models, and aren't included.)
+fn text_drafts(tab: DocTab) -> Vec<Change> {
+    use shared::block::BlockEdit;
+    use shared::boxes::BoxEdit;
+    use shared::list::ListEdit;
+    use shared::table::TableEdit;
+    let mut out = Vec::new();
+    tab.header_drafts.with(|d| out.extend(d.iter().map(|(at, h)| Change::Block { edit: BlockEdit::Header { at: at.clone(), header: h.clone() } })));
+    tab.p_drafts.with(|d| out.extend(d.iter().map(|((at, child), (_, t))| Change::Block { edit: BlockEdit::SetP { at: at.clone(), child: *child, text: t.clone() } })));
+    tab.table_drafts.with(|d| out.extend(d.iter().map(|(at, (id, title))| Change::Table { edit: TableEdit::Info { at: at.clone(), id: id.clone(), title: title.clone() } })));
+    tab.th_drafts.with(|d| out.extend(d.iter().map(|((at, col), (_, t))| Change::Table { edit: TableEdit::SetHeader { at: at.clone(), col: *col, text: t.clone() } })));
+    tab.cell_drafts.with(|d| {
+        out.extend(d.iter().map(|((at, part, row, col), (_, t))| Change::Table { edit: TableEdit::SetCell { at: at.clone(), part: *part, row: *row, col: *col, text: t.clone() } }))
+    });
+    tab.li_drafts.with(|d| out.extend(d.iter().map(|((at, n), (_, t))| Change::List { edit: ListEdit::SetItem { at: at.clone(), n: *n, text: t.clone() } })));
+    tab.box_drafts.with(|d| {
+        out.extend(d.iter().map(|((at, n), (_, t))| Change::Box {
+            edit: match n {
+                Some(n) => BoxEdit::SetP { at: at.clone(), n: *n, text: t.clone() },
+                None => BoxEdit::SetTrigger { at: at.clone(), text: t.clone() },
+            },
+        }))
+    });
+    tab.ref_drafts.with(|d| {
+        out.extend(d.iter().map(|(key, entry)| {
+            let edit = match key.split_once(':') {
+                Some((tag, id)) if tag != "new" => RefEdit::Update { tag: tag.to_string(), id: id.to_string(), entry: entry.clone() },
+                _ => RefEdit::Add { entry: entry.clone() },
+            };
+            Change::Reference { edit }
+        }))
+    });
+    out
+}
+
 /// The re-indented text of the element `find` locates in `text`, highlighted.
 fn planned_view(planned: Result<String, String>, find: impl Fn(&str, &[shared::StructNode]) -> Option<usize>, gone: &'static str) -> AnyView {
     let planned = planned.and_then(|t| parse(&t).map(|p| (t, p.nodes)).map_err(|e| e.message));
@@ -264,8 +301,36 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     );
                 }
             }
-            // Reference cards apply one at a time, so Source shows the file as written.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) | Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | Some(FormKind::SectionEl(_)) | None => {}
+            // Paragraphs, headers, tables, lists, boxes and reference cards: the text with
+            // every such draft in the tab applied.
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) => {
+                let changes = text_drafts(tab);
+                if !changes.is_empty() {
+                    let mut text = d.source.clone();
+                    let mut planned = 0;
+                    for c in &changes {
+                        if let Ok(t) = c.plan(&text) {
+                            text = t;
+                            planned += 1;
+                        }
+                    }
+                    if planned > 0 {
+                        let key = d.key_of(selected.get());
+                        return planned_view(
+                            Ok(text),
+                            move |_, nodes| {
+                                let mut cur = 0;
+                                for k in &key {
+                                    cur = *nodes.get(cur)?.children.get(*k)?;
+                                }
+                                Some(cur)
+                            },
+                            "Apply moves this element.",
+                        );
+                    }
+                }
+            }
+            Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | Some(FormKind::SectionEl(_)) | None => {}
             Some(FormKind::Monster(path, tag)) => {
                 if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
                     let p2 = path.clone();
@@ -326,6 +391,33 @@ fn TabView(tab: DocTab) -> impl IntoView {
                         on:click=move |_| apply(tab, Change::Reference { edit: RefEdit::CreateBlock })>"Create <reference>"</button>
                 </div>
             </Show>
+            {move || tab.disk.get().map(|note| {
+                let close = move |_| tab.disk.set(None);
+                match note {
+                    crate::state::DiskNote::Reloaded { gone } => view! {
+                        <div class="notice info disk-note">
+                            {match gone {
+                                Some(tag) => format!("The file changed on disk and was read again. The <{tag}> you had open isn't in the file any more."),
+                                None => "The file changed on disk and was read again.".to_string(),
+                            }}
+                            <button class="small" on:click=close>"OK"</button>
+                        </div>
+                    }.into_any(),
+                    crate::state::DiskNote::Changed { edits } => view! {
+                        <div class="notice warn disk-note">
+                            {format!("The file changed on disk. Reading it again throws away {} unapplied edit{}; until then, Apply is refused.", edits, if edits == 1 { "" } else { "s" })}
+                            <button class="small primary" on:click=move |_| tab.reload()>"Read it again"</button>
+                            <button class="small" on:click=close>"Not now"</button>
+                        </div>
+                    }.into_any(),
+                    crate::state::DiskNote::Broken(why) => view! {
+                        <div class="notice warn disk-note">
+                            {format!("The file changed on disk and can't be opened as it is now: {why}")}
+                            <button class="small" on:click=close>"OK"</button>
+                        </div>
+                    }.into_any(),
+                }
+            })}
             <Show when=move || is_supplement() && selected.get() == 0>
                 <AddParts tab/>
             </Show>

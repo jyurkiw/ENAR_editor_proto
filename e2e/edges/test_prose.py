@@ -61,3 +61,21 @@ def test_escape_closes_the_add_menu(edge):
     ui.page.keyboard.press('Escape')
     expect(menu).to_have_count(0)
     expect(ui.page.locator('.menu-backdrop')).to_have_count(0)
+
+
+def test_a_new_reference_card_keeps_quick_typing(edge):
+    """The new card's Id takes the focus as it appears, not a frame later, so typing at
+    once into another of its fields stays there (issue 7)."""
+    ui = edge
+    ui.open(SUPP)
+    ui.select('reference')
+    ui.body.get_by_role('button', name='+ Add ▾').click()
+    ui.body.locator('.add-menu button', has=ui.page.locator('.ref-kind', has_text='data')).click()
+    card = ui.body.locator('[id^="ref-card-new:"]').last
+    value = card.locator('input[data-attr=value]')
+    value.click()
+    ui.page.keyboard.type('typed at once')
+    ui.page.wait_for_timeout(300)
+    expect(value).to_have_value('typed at once')
+    expect(card.locator('input[data-attr=id]')).to_have_value('')
+    card.get_by_role('button', name='Discard').click()

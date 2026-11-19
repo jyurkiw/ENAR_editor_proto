@@ -58,7 +58,7 @@ fn InfoCard(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>
     let el = NodeRef::<html::Div>::new();
     view! {
         <div node_ref=el class="table-card" class:dirty=dirty
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { do_apply() }
             }>
@@ -161,7 +161,7 @@ fn HeaderRow(tab: DocTab, at: StoredValue<TableAt>, col: usize, view: Memo<Optio
 
     view! {
         <div node_ref=el class="th-row" class:dirty=dirty class:failed=failed
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>
@@ -293,7 +293,7 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
 
     view! {
         <div node_ref=el class="cell" class:dirty=dirty class:failed=failed class:extra=no_header
-            on:focusout=move |ev: FocusEvent| if present.get_untracked() && !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if present.get_untracked() && !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if !present.get_untracked() { return }
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }

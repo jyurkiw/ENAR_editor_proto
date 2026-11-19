@@ -118,6 +118,11 @@ impl Card {
     }
 }
 
+thread_local! {
+    /// The key of the card "+ Add" just made, until its Id field has the focus.
+    static JUST_ADDED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 #[component]
 fn Field(
     card: Card,
@@ -136,10 +141,22 @@ fn Field(
         }
         check.and_then(|c| c(&v))
     };
+    // The card just added focuses its Id as it appears, so typing straight after "+ Add"
+    // lands there (a frame later, fast typing went elsewhere).
+    let input = NodeRef::<html::Input>::new();
+    if attr == "id" {
+        input.on_load(move |el| {
+            let key = card.key.get_value();
+            if JUST_ADDED.with(|j| j.borrow().as_deref() == Some(key.as_str())) {
+                JUST_ADDED.with(|j| *j.borrow_mut() = None);
+                let _ = el.focus();
+            }
+        });
+    }
     view! {
         <label class="field">
             <span class="field-label">{label}{required.then_some(" *")}</span>
-            <input type="text" placeholder=placeholder class:invalid=move || problem().is_some()
+            <input node_ref=input type="text" placeholder=placeholder class:invalid=move || problem().is_some()
                 data-attr=attr
                 prop:value=value
                 on:input=move |ev| {
@@ -415,8 +432,12 @@ fn RefCard(
             .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
             .zip(el.get())
             .is_some_and(|(n, card_el)| card_el.contains(Some(&n)));
-        if !inside && card.dirty() && card.model().missing().is_empty() {
-            card.apply();
+        if !inside {
+            crate::apply::if_still_shown(el, move || {
+                if card.dirty() && card.model().missing().is_empty() {
+                    card.apply();
+                }
+            });
         }
     };
     let on_key = move |ev: KeyboardEvent| {
@@ -597,6 +618,7 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
         let n = counter.get_value() + 1;
         counter.set_value(n);
         let key = format!("new:{n}");
+        JUST_ADDED.with(|j| *j.borrow_mut() = Some(key.clone()));
         tab.ref_drafts.update(|d| {
             d.insert(key.clone(), RefEntry::new(tag));
         });
@@ -607,13 +629,10 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
         filter.set(String::new());
         request_animation_frame(move || {
             let doc = web_sys::window().and_then(|w| w.document());
+            // Its Id field focuses itself as it appears (see Field): focusing it here, a
+            // frame later, took the focus from wherever typing had gone meanwhile.
             if let Some(card) = doc.and_then(|d| d.get_element_by_id(&format!("ref-card-{key}"))) {
                 card.scroll_into_view();
-                if let Ok(Some(input)) = card.query_selector("input[data-attr=id]") {
-                    if let Ok(h) = input.dyn_into::<web_sys::HtmlElement>() {
-                        let _ = h.focus();
-                    }
-                }
             }
         });
     };

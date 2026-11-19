@@ -149,3 +149,57 @@ def test_the_generator_list(edge):
     assert items.count() - tags <= 40, (items.count(), tags)       # refs and library capped at 40
     ui.page.keyboard.press('Escape')
     expect(panel).to_have_count(0)
+
+
+def edit_on_disk(ui, rel, old, new):
+    path = ui.root / rel
+    text = path.read_text(encoding='utf-8')
+    assert old in text, old
+    path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+
+def test_a_change_on_disk_is_read_again(edge):
+    """With nothing unapplied, the tab reads the file again by itself; the selection
+    stays where it can, and the notice says when it can't."""
+    ui = edge
+    ui.open(SUPP)
+    ui.select('section', name='weir')
+    note = ui.viewer.locator('.disk-note')
+    edit_on_disk(ui, SUPP, 'Below the weir lives', 'Under the weir lives')
+    expect(note).to_have_text(re.compile('^The file changed on disk and was read again.'), timeout=10_000)
+    expect(ui.body.locator('.body-block.para').first).to_contain_text('Under the weir lives')
+    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-label', re.compile('weir$'))
+    note.get_by_role('button', name='OK').click()
+    expect(note).to_have_count(0)
+
+    # The selected section goes: the notice says so (the form it had open is gone).
+    text = (ui.root / SUPP).read_text(encoding='utf-8')
+    start = text.index('<section name="weir">')
+    end = text.index('</section>', start) + len('</section>')
+    (ui.root / SUPP).write_text(text[:start] + text[end:], encoding='utf-8')
+    expect(note).to_contain_text("The <section> you had open isn't in the file any more.", timeout=10_000)
+    expect(ui.page.locator('.tree .row.element[data-label$="· weir"]')).to_have_count(0)
+
+
+def test_a_change_on_disk_with_unapplied_edits(edge, app):
+    """Unapplied edits aren't thrown away behind your back: the tab says the file changed,
+    Apply is refused, and "Read it again" drops the edits for the new text."""
+    ui = edge
+    ui.open(SUPP)
+    ui.select('section', name='mills')
+    row = ui.body.locator('.body-block.para').first
+    Prose(ui, row).type(' Typed before the file changed.')
+    edit_on_disk(ui, SUPP, 'A miller caught in the race', 'A miller caught in the mill race')
+    note = ui.viewer.locator('.disk-note')
+    expect(note).to_contain_text('Reading it again throws away 1 unapplied edit', timeout=10_000)
+    row.get_by_role('button', name='Apply', exact=True).click()
+    err = ui.page.locator('.error-modal')
+    expect(err.locator('.message')).to_contain_text('has changed on disk since it was opened')
+    err.get_by_role('button', name='OK').click()
+    assert 'Typed before the file changed.' not in (ui.root / SUPP).read_text(encoding='utf-8')
+    note.get_by_role('button', name='Read it again').click()
+    expect(note).to_have_text(re.compile('^The file changed on disk and was read again.'))
+    para = ui.body.locator('.body-block.para').first
+    expect(para.locator('.chip-box')).to_contain_text('A miller caught in the mill race')
+    expect(para.locator('.chip-box')).not_to_contain_text('Typed before the file changed.')
+    expect(para.locator('.state-badge')).to_have_count(0)

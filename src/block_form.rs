@@ -154,7 +154,7 @@ fn HeaderForm(tab: DocTab, at: StoredValue<Container>, base: Memo<Option<Header>
     };
     view! {
         <div node_ref=el class="block-header" class:dirty=dirty
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { do_apply() }
             }>
@@ -314,7 +314,7 @@ fn BlockRow(
             class:dragging=move || drag.from.get() == Some(child())
             on:dragover=on_dragover on:drop=on_drop
             // A row being removed while focused still gets focusout, after its signals are gone.
-            on:focusout=move |ev: FocusEvent| if is_p.try_get_untracked().unwrap_or(false) && !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if is_p.try_get_untracked().unwrap_or(false) && !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if !is_p.get_untracked() { return }
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }

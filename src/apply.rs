@@ -456,3 +456,15 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
         }
     }
 }
+
+/// Runs `f` (a form's apply when its box loses focus) a frame later, and only if `el` is
+/// still on the page: a form being taken down (a switch to the Source view, another tab, a
+/// redraw) loses its focus too, and that isn't leaving it.
+pub fn if_still_shown(el: leptos::prelude::NodeRef<leptos::html::Div>, f: impl FnOnce() + 'static) {
+    request_animation_frame(move || {
+        let shown = el.try_get_untracked().flatten().is_some_and(|e| e.is_connected());
+        if shown {
+            f();
+        }
+    });
+}

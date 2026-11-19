@@ -360,7 +360,7 @@ fn ParaRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, paras: Memo<Vec<Strin
     };
     view! {
         <div node_ref=el class="body-block para" class:dirty=move || d.dirty() class:failed=move || d.failed()
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { d.revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>
@@ -449,7 +449,7 @@ fn PartBar(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>, f
     let after = Signal::derive(move || Some(child));
     view! {
         <div node_ref=el class="table-card part-bar" class:dirty=move || d.dirty() class:failed=move || d.failed()
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { d.revert() } else if ev.key() == "Enter" { do_apply() }
             }>
@@ -716,7 +716,7 @@ fn EffectRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, effects: Memo<Vec<E
     };
     view! {
         <div node_ref=el class="body-block para effect-row" class:dirty=move || d.dirty() class:failed=move || d.failed()
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { d.revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>

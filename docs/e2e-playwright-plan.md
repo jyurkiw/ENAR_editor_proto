@@ -261,11 +261,11 @@ When someone adds a new edit variant without a test, the suite fails and names i
    runs. The build step needs TeX Live plus the dndbook class, which is the slow part.
    Until then the suite runs locally: `uv run --project e2e pytest e2e`.
 
-**Where it stands:** 1–7 are done. A full run (`uv run pytest --no-build`) is 95 tests in
-about 1 min 45 s: the story (steps 01–12, golden comparison and PDF build), the secondary
-suite (`edges/`, 17 tests), and the coverage check (`coverage/`). Every edit variant and
-section block kind is used; two UI features are still pending in `features.toml`. CI (8)
-isn't set up.
+**Where it stands:** 1–7 are done. A full run (`uv run pytest --no-build`) is 106 tests in
+about 2 min 15 s: the story (steps 01–12, golden comparison and PDF build), the secondary
+suite (`edges/`, 26 tests) and the coverage check (`coverage/`). Every edit variant,
+section block kind and listed UI feature is used, and none is pending. CI (8) isn't set
+up.
 
 Two things differ from the plan above. The coverage check reads the edit variants from
 `shared/src` with a regex instead of a `cargo run` binary. And features map to the tests
@@ -282,10 +282,18 @@ the map's kind and the blank line; step 04's chapter move; step 05's chips, focu
 pills; step 06's footer, spans and deleted cells; step 07's cutline and typed cells; and
 `edges/test_prose.py`). Fixing them also turned up and fixed a regression: drag markers
 reset each row's `class:` toggles, which the section form's old rebuild-on-every-apply had
-hidden. **Still open:** #7 (a new reference card's late focus, too quick for a person to
-hit) and #16 (the Source view's planned text for other forms). The compiler issues are
-open in jyurkiw/enigma_narrative (#4, #5, and #6, which is new: table spans). The list
-below is the original write-up.
+hidden. Later on the branch, #7 and #16 were fixed too. The editor also gained two things
+the last pending feature needed:
+- **It notices a file changed on disk**, on focus and every two seconds. A tab with
+  nothing unapplied reads the file again and says when the selected element is gone. A
+  tab with unapplied edits offers to read it again instead.
+- **Taking a form down no longer applies it.** A paragraph, list item, box line, table
+  cell or reference card applies on leaving only if it's still on the page, so switching
+  to the Source view writes nothing.
+
+No feature in `features.toml` is pending now. The compiler issues are open in
+jyurkiw/enigma_narrative (#4, #5, and #6, which is new: table spans). The list below is
+the original write-up.
 
 - **No form for `<productDescription>`** (#3). Step 03 can't write one, and nothing else in
   the editor can either.

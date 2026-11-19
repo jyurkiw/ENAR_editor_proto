@@ -114,6 +114,11 @@ pub async fn open_file(path: &str) -> Result<OpenedDoc, AppError> {
     invoke("open_file", &PathArg { path }).await
 }
 
+/// The file's text as it is on disk, unchecked.
+pub async fn read_text(path: &str) -> Result<String, AppError> {
+    invoke("read_text", &PathArg { path }).await
+}
+
 pub async fn pick_folder(title: &str, start: Option<&str>) -> Option<String> {
     #[derive(Serialize)]
     struct A<'a> {

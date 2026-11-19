@@ -60,6 +60,10 @@ fn main() {
 fn App() -> impl IntoView {
     let app = AppCtx::new();
     provide_context(app);
+    // Notice open files changed by something else: when the window comes back, and every
+    // few seconds while it's open.
+    let _ = window_event_listener(leptos::ev::focus, move |_| app.check_disk());
+    set_interval(move || app.check_disk(), std::time::Duration::from_secs(2));
     // Reopen the last project.
     spawn_local(async move {
         if let Some(p) = api::last_project().await {

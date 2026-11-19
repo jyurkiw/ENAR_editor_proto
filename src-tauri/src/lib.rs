@@ -119,6 +119,12 @@ async fn open_file(path: String, app: AppHandle) -> Result<OpenedDoc, AppError> 
     .await
 }
 
+/// A file's text as it is on disk, unchecked: for noticing that an open file changed.
+#[tauri::command(rename_all = "snake_case")]
+async fn read_text(path: String) -> Result<String, AppError> {
+    blocking(move || std::fs::read_to_string(&path).map_err(|e| AppError::new(format!("Can't read {path}: {e}")))).await
+}
+
 /// Applies a form's change to the file. `expected` is the text the editor has open.
 #[tauri::command(rename_all = "snake_case")]
 async fn apply_change(path: String, expected: String, change: Change, app: AppHandle) -> Result<ApplyResult, AppError> {
@@ -261,6 +267,7 @@ pub fn run() {
             create_magic_item_file,
             create_spell_file,
             open_file,
+            read_text,
             apply_change,
             ref_index,
             library,

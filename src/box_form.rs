@@ -94,7 +94,7 @@ fn BoxInfo(tab: DocTab, at: StoredValue<BoxAt>, view: Memo<Option<BoxView>>) -> 
     };
     view! {
         <div node_ref=el class="table-card" class:dirty=dirty
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { draft.set(None) } else if ev.key() == "Enter" { do_apply() }
             }>
@@ -298,7 +298,7 @@ fn TextRow(
         <div node_ref=el class="body-block para" class:drop-before=move || marker() == "drop-before" class:drop-after=move || marker() == "drop-after"
             class:dirty=dirty class:failed=failed class:dragging=dragging
             on:dragover=on_dragover on:drop=on_drop
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>

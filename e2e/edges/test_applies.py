@@ -57,8 +57,8 @@ def test_revert_and_the_unapplied_mark(edge):
 
 
 def test_source_shows_what_apply_would_write(edge):
-    """For a chapter's unapplied edits (and the cover's, and raw XML). Paragraphs, tables,
-    stat block cards and reference entries show the file as it is (see the plan's findings)."""
+    """For a chapter's unapplied edits, and a paragraph's (issue 16: paragraphs, tables,
+    lists, boxes and reference cards used to show the file as written)."""
     ui = edge
     ui.open(SUPP)
     ui.select('chapter', name='millward')
@@ -72,6 +72,15 @@ def test_source_shows_what_apply_would_write(edge):
     ui.mode('Source')
     expect(ui.viewer.locator('.source-note')).to_have_count(0)
     ui.mode('Form')
+
+    ui.select('section', name='mills')
+    row = ui.body.locator('.body-block.para').first
+    Prose(ui, row).type(' Words not yet applied.')
+    ui.mode('Source')
+    expect(ui.viewer.locator('.source-note')).to_have_text('Showing the text after Apply (not yet written).')
+    expect(ui.viewer.locator('pre.code')).to_contain_text('Words not yet applied.')
+    ui.mode('Form')
+    row.get_by_role('button', name='Revert').click()
 
 
 def test_the_source_view(edge):

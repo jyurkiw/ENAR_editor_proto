@@ -74,7 +74,7 @@ fn ListInfo(tab: DocTab, at: StoredValue<ListAt>, view: Memo<Option<ListView>>) 
     };
     view! {
         <div node_ref=el class="table-card" class:dirty=style_dirty
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { apply_style() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || apply_style()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { style_draft.set(None) } else if ev.key() == "Enter" { apply_style() }
             }>
@@ -211,7 +211,7 @@ fn ItemRow(tab: DocTab, at: StoredValue<ListAt>, n: usize, items: Memo<Vec<Strin
         <div node_ref=el class="body-block para" class:drop-before=move || marker() == "drop-before" class:drop-after=move || marker() == "drop-after"
             class:dirty=dirty class:failed=failed class:dragging=move || drag.from.get() == Some(n)
             on:dragover=on_dragover on:drop=on_drop
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>
