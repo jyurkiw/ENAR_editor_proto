@@ -13,6 +13,7 @@ PROTO_UI = E2E.parent
 TARGET = PROTO_UI / 'target' / 'e2e'          # its own target dir: a running `cargo tauri dev` can't lock it
 EXE = TARGET / 'debug' / 'enigma-editor.exe'
 LIVE = E2E / 'out' / 'live'                   # tools/launch.py's run folder
+PASSED = set()                                # "test_NN_x.py::test_y" for each story test that passed
 
 
 class BuildFailed(Exception):
@@ -77,6 +78,22 @@ def stop(proc):
     proc.log.close()
 
 
+def app_venv():
+    """The Python environment the app runs the validator and compiler in (its cache folder,
+    UV_PROJECT_ENVIRONMENT), so a compile here doesn't build one of its own."""
+    return Path(os.environ['LOCALAPPDATA']) / 'com.enigmanarrative.editor' / 'venv'
+
+
+def compile_supplement(data_repo, supplement, out_pdf):
+    """Runs the compiler the way the app does (uv run --project <compiler>, the app's venv)
+    and returns (exit code, its output)."""
+    compiler = Path(data_repo) / 'compiler'
+    env = dict(os.environ, UV_PROJECT_ENVIRONMENT=str(app_venv()), PYTHONIOENCODING='utf-8')
+    r = subprocess.run(['uv', 'run', '--quiet', '--project', str(compiler), 'python', '-m', 'encompile', str(supplement), '-o', str(out_pdf)],
+                       cwd=compiler, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    return r.returncode, r.stdout + r.stderr
+
+
 def app_page(browser):
     """The editor's page, once the UI and the e2e hook are up."""
     page = next(p for c in browser.contexts for p in c.pages if not p.url.startswith('devtools'))
@@ -113,4 +130,7 @@ class App:
         """Every apply so far: {"change": ..., "result": {"status": ...}}."""
         if not self.change_log.exists():
             return []
-        return [json.loads(line) for line in self.change_log.read_text(encoding='utf-8').splitlines() if line]
+        text = self.change_log.read_text(encoding='utf-8')
+        # The app may be part way through writing the last line: only complete lines count.
+        done = text[:text.rfind('\n') + 1]
+        return [json.loads(line) for line in done.splitlines() if line]

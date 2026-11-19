@@ -27,6 +27,8 @@ def pytest_addoption(parser):
                      help='use the app tools/launch.py started (no build, no launch, the project as it is)')
     parser.addoption('--from-snapshot', metavar='NN',
                      help='start the story after step NN, on the files the newest run saved after it')
+    parser.addoption('--update-golden', action='store_true',
+                     help="step 12 rewrites golden/ from this run's files instead of comparing them")
     parser.addoption('--data-repo', default=None,
                      help='the enigma-narrative checkout (default ENIGMA_DATA_REPO or E:/Data/enigma-narrative)')
 
@@ -118,3 +120,17 @@ def app(pytestconfig, run_dir, project_dir, data_repo):
 @pytest.fixture
 def page(app):
     return app.page
+
+
+def pytest_collection_modifyitems(config, items):
+    """The story first, then the secondary suite (edges/, which starts from the story's
+    files), then the coverage check (coverage/, which needs both)."""
+    items.sort(key=lambda i: 2 if 'coverage' in i.path.parts else 1 if 'edges' in i.path.parts else 0)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    rep = yield
+    if rep.when == 'call' and rep.passed:
+        harness.PASSED.add(f'{item.path.name}::{item.originalname}')     # for the coverage check
+    return rep

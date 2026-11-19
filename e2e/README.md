@@ -29,6 +29,26 @@ browsers, because it attaches to the app's WebView2.
   start of each run. `adventures/e2e/` has a `.gitignore` of its own, so git never sees
   it.
 
+## The suites
+
+A run goes in this order:
+
+1. `story/`: steps 01–12 write Grand Forks. Step 12 compares every file with
+   `golden/grand-forks/`, then compiles the PDF into `out/<run>/build/`.
+2. `edges/`: independent edge cases (refused applies, Revert, Cancel on each delete, bad
+   files, the Source view, tabs, Ctrl+K's list). Each module starts from the story's last
+   snapshot.
+3. `coverage/`: fails when an edit variant (read from `shared/src`), a section block kind,
+   or a feature in `features.toml` went unused. It runs only on a whole run.
+
+```powershell
+uv run pytest story --update-golden    # rewrite golden/ from this run, then review the diff
+uv run pytest edges --no-build         # just the edge cases, on the newest story snapshot
+```
+
+The build in step 12 runs the compiler the way the app does, with `uv run` in the app's own
+Python environment (`%LOCALAPPDATA%\com.enigmanarrative.editor\venv`).
+
 ## Writing tests
 
 The primary suite is `story/`: ordered steps (`test_01_project.py`, `test_02_new_files.py`

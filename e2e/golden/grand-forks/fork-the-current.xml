@@ -1,0 +1,45 @@
+<spell xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../schemas/spell-template-schema.xsd" id="fork-the-current">
+  <name>Fork the Current</name>
+  <level>2</level>
+  <school>Transmutation</school>
+  <ritual>false</ritual>
+  <castingTimes>
+    <castingTime>
+      <value>1</value>
+      <unit>action</unit>
+      <trigger/>
+    </castingTime>
+  </castingTimes>
+  <range>
+    <type>ranged</type>
+    <distance>120</distance>
+  </range>
+  <components>
+    <verbal>true</verbal>
+    <somatic>true</somatic>
+    <materials>
+      <material>
+        <description>a forked twig</description>
+        <cost>0</cost>
+        <consumed>false</consumed>
+      </material>
+    </materials>
+  </components>
+  <duration>
+    <concentration>true</concentration>
+    <value>1</value>
+    <unit>up-to-minute</unit>
+  </duration>
+  <description>
+    <p>You split a current of water into two, each half as strong, for the duration.</p>
+  </description>
+  <higherLevels>
+    <cantripUpgrades/>
+    <slotUpgrades>You can split the current one more time for each slot level above 2.</slotUpgrades>
+  </higherLevels>
+  <classes>
+    <class>Wizard</class>
+    <class>Druid</class>
+  </classes>
+  <reference/>
+</spell>

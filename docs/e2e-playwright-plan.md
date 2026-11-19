@@ -228,7 +228,7 @@ that would muddy the story:
 
 ## Coverage check
 
-The last test, `test_coverage.py`, fails if anything was never used:
+The last tests, `coverage/test_coverage.py`, fail if anything was never used:
 
 1. **Backend edits.**
    - It lists every `Change` target and every variant of every `*Edit` enum. A small
@@ -261,21 +261,66 @@ When someone adds a new edit variant without a test, the suite fails and names i
    runs. The build step needs TeX Live plus the dndbook class, which is the slow part.
    Until then the suite runs locally: `uv run --project e2e pytest e2e`.
 
+**Where it stands:** 1–7 are done. A full run (`uv run pytest --no-build`) is 95 tests in
+about 1 min 45 s: the story (steps 01–12, golden comparison and PDF build), the secondary
+suite (`edges/`, 17 tests), and the coverage check (`coverage/`). Every edit variant and
+section block kind is used; two UI features are still pending in `features.toml`. CI (8)
+isn't set up.
+
+Two things differ from the plan above. The coverage check reads the edit variants from
+`shared/src` with a regex instead of a `cargo run` binary. And features map to the tests
+that use them in `features.toml` itself, rather than `@covers` marks on the tests.
+
 ## Findings so far
 
-Things the story steps turned up. They're gaps in the editor, not in the tests:
+Things the story steps turned up. They're gaps in the editor, not in the tests, and each
+is a GitHub issue:
 
-- **No form for `<productDescription>`.** Step 03 can't write one, and nothing else in the
-  editor can either.
-- **No Kind field on reference images.** The compiler's `kind="art|map"` can't be set
+- **No form for `<productDescription>`** (#3). Step 03 can't write one, and nothing else in
+  the editor can either.
+- **No Kind field on reference images** (#4). The compiler's `kind="art|map"` can't be set
   from the reference form, so the map can't be marked as a map yet.
-- **Chapters can't be reordered.** `ChapterEdit` has Add, Update and Delete only. Step 04
-  reorders sections inside a chapter instead.
-- **A leftover blank line.** Removing the skeleton's cover and adding a new one leaves
+- **Chapters can't be reordered** (#5). `ChapterEdit` has Add, Update and Delete only.
+  Step 04 reorders sections inside a chapter instead.
+- **A leftover blank line** (#6). Removing the skeleton's cover and adding a new one leaves
   two blank lines after `<supplement>`.
-- **New reference cards focus their Id field one frame late.** Fast typing right after
-  "+ Add" can land in the wrong field. The test waits for the focus; a person typing
+- **New reference cards focus their Id field one frame late** (#7). Fast typing right
+  after "+ Add" can land in the wrong field. The test waits for the focus; a person typing
   can't be fast enough to hit this.
+- **Picking a tag in Ctrl+K applies the paragraph, then closes the tag's form** (#8). The
+  focused search box is removed, which counts as leaving the paragraph, and the apply
+  rebuilds the section form. Step 05 applies each paragraph before a chip goes in.
+- **+ ¶ at start doesn't focus the new paragraph** (#9). + ¶ below does.
+- **A new noun's chip shows its id in red until the box loses focus** (#10).
+- **A table without a footer can't get one** (#11). Footer rows show only once there's a
+  `<footer>`.
+- **Table cells can't be deleted** (#12). A table link's new table is a cell over once it
+  has headers, and spans can never leave a row that matches its headers. Step 06 replaces
+  the first row and clears its span again.
+- **Clicking the family image's Cutline box focuses its ＋ button** (#13). The box sits
+  inside a `<label>`. Step 07 focuses it from script.
+- **Typing in a distinction table cell comes out backwards** (#14). Each keystroke
+  rebuilds the grid. Step 07 puts each cell's text in with one input event.
+- **The compiler crashes on a legendary `<actionRef>` without a name**
+  (jyurkiw/enigma_narrative#4). The schema makes the name optional, and so does the
+  editor. Step 08 names the reused action so the preview renders.
+- **The compiler fails with `-o` on another drive** (jyurkiw/enigma_narrative#5). Step 12
+  builds into the run folder, which is on the same drive as the data repo.
+- **Closing a tab with unapplied edits doesn't ask** (#15). A paragraph being edited is
+  applied, because the close takes focus out of it; a stat block card's draft is lost.
+  `edges/` pins today's behaviour.
+- **The Source view shows unapplied edits only for the cover, chapters and raw XML** (#16).
+- **Escape doesn't close the reference "+ Add ▾" menu, and leaves Ctrl+K with no focus**
+  (#17).
+
+Not editor problems, but worth knowing:
+
+- The Windows copy of the dnd LaTeX class (`C:/Users/…/texmf`) fails on `DndReadAloud` and
+  `DndSidebar` with no options (`I do not know the key '/tcb/\NoValue'`); the WSL copy
+  doesn't. Step 12 allows that error and no other.
+- The editor reads a file only when it opens it, so a change on disk shows once the tab is
+  reopened. That's why "This X isn't in the file any more" is still pending in
+  `features.toml`.
 
 ## Open questions
 

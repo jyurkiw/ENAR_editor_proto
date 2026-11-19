@@ -1,0 +1,205 @@
+<supplement xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" type="settlement" xsi:noNamespaceSchemaLocation="../../../../schemas/supplement-template-schema.xsd">
+  <cover color="white" shadow="true" shadowColor="black">
+    <headerTitle>Grand Forks</headerTitle>
+    <headerSubtitle>A Town in Three Pieces</headerSubtitle>
+    <coverImage ref="img-cover" margin="0.5in"/>
+    <footerChaser>A settlement on the Copperway</footerChaser>
+    <footerSubchaser>Placeholder edition</footerSubchaser>
+    <author>The Grand Forks Test Suite</author>
+    <dmsguildLogo/>
+    <enigmaLogo place="above"/>
+  </cover>
+  <contents>
+    <enigmaLogo/>
+  </contents>
+  <chapter name="introduction" columns="1" credit="Test Author">
+    <chapterTitle>Where the River Splits</chapterTitle>
+    <section name="intro-opening">
+      <p>Travellers on the <nounRef ref="copperway" value="name"/> reach <nounRef ref="grand-forks" value="name"/> after three days of empty road, and the Tollwarden meets them at the bridge.</p>
+      <speakAloud>
+        <trigger>When the party first sees the town:</trigger>
+        <p>The road crests a low hill, and below you the river splits in two around a town built on three banks.</p>
+      </speakAloud>
+      <p><nounRef ref="grand-forks" value="name"/> sits where the <nounRef ref="river-sallow" value="name"/> splits around a wedge of high ground. The <nounRef ref="river-sallow" value="shortName"/> is slow and brown, and the <nounRef ref="river-sallow" value="shortName"/> turns every mill in town. Swimmers who fight the current end up <condition>restrained</condition> unless they pass <skillcheck stat="str" skill="athletics" dc="13"/>; the chapter on <chapterRef name="tollside"/> has the fines.</p>
+      <figure id="fig-town-map" name="Grand Forks and the Sallow">
+        <image id="img-map" span="both"/>
+      </figure>
+      <p><figureRef ref="fig-town-map"/> shows all three pieces.</p>
+    </section>
+    <section name="three-pieces">
+      <title>The Three Pieces</title>
+      <p>Each piece still keeps its own customs.</p>
+      <p>The town is really three towns:</p>
+      <list bullet="number">
+        <li>Tollside, on the north bank, where the road arrives.</li>
+        <li>Millward, on the east fork.</li>
+        <li>The Wedge, on the high ground between.</li>
+      </list>
+    </section>
+  </chapter>
+  <chapter name="tollside">
+    <chapterTitle>Tollside</chapterTitle>
+    <section name="toll-bridge">
+      <title>The Toll Bridge</title>
+      <p>Every traveller pays the toll of <dataRef ref="bridgeToll" value="value"/> at the north end of the bridge.</p>
+      <tableLink id="toll-rates"/>
+      <image id="img-toll-bridge" placement="top"/>
+      <parcelLink number="1"/>
+    </section>
+    <section name="coaching-inn">
+      <title>The Copper Kettle Inn</title>
+      <p>The Copper Kettle is where the toll disputes end up.</p>
+      <sidebarLink id="toll-disputes"/>
+    </section>
+    <section name="wardens-house">
+      <title>The Warden's House</title>
+      <p>The Toll Warden lives above the gatehouse.</p>
+      <dialog speaker="Toll Warden">
+        <trigger>If a traveller argues about the toll:</trigger>
+        <p>Two coppers, friend. The river does not cross itself.</p>
+        <p>And no, the Sallow does not count as a road.</p>
+      </dialog>
+    </section>
+    <table id="toll-rates">
+      <title>Bridge Tolls</title>
+      <header>
+        <th>Traveller</th>
+        <th>Toll</th>
+        <th>Notes</th>
+      </header>
+      <tableBody>
+        <tr>
+          <td>On foot</td>
+          <td>
+            <dataRef ref="bridgeToll" value="value"/>
+          </td>
+          <td>Children cross free</td>
+        </tr>
+        <tr>
+          <td>Cart or wagon</td>
+          <td>5 cp</td>
+          <td>Per axle</td>
+        </tr>
+        <tr>
+          <td>Herd animals</td>
+          <td>1 cp a head</td>
+          <td>The warden counts them</td>
+        </tr>
+      </tableBody>
+    </table>
+    <sidebar id="toll-disputes">
+      <title>Toll Disputes</title>
+      <p>A traveller who will not pay is held until the Toll Warden hears the case.</p>
+    </sidebar>
+  </chapter>
+  <chapter name="millward">
+    <chapterTitle>Millward</chapterTitle>
+    <section name="weir">
+      <title>The Weir</title>
+      <p>Below the weir lives a <monsterRef ref="forkjaw-pike" value="name"/>, and the stones are slick. Crossing on foot takes <skillcheck stat="dex" skill="acrobatics" dc="13" table="true"/>; a slip means <hazard name="falling">a fall</hazard>.</p>
+      <skillcheckResultTable stat="dex" skill="acrobatics">
+        <result dc="10">
+          <rd>You keep your feet, barely.</rd>
+        </result>
+        <result dc="15">
+          <rd>You cross without getting wet.</rd>
+        </result>
+      </skillcheckResultTable>
+    </section>
+    <section name="mills">
+      <title>The Mills</title>
+      <p>A miller caught in the race makes <savingthrow stat="str" dc="12"/> or is pulled under the wheel.</p>
+    </section>
+    <section name="pike-attack">
+      <title>Trouble in the Water</title>
+      <p>The pike attacks anyone who swims out to the matriarch’s pool.</p>
+      <monsterEntry ref="forkjaw-pike" omit="quoteBox" omitParts="pike-lore">
+            </monsterEntry>
+      <parcelLink number="2"/>
+    </section>
+  </chapter>
+  <chapter name="wedge">
+    <chapterTitle>The Wedge</chapterTitle>
+    <section name="market">
+      <title>Wedge Market</title>
+      <p>Ferry hands sell a <itemRef ref="ferrymans-lantern" value="name"/> to anyone crossing after dark.</p>
+      <magicItemBlock ref="ferrymans-lantern"/>
+      <image id="img-lantern"/>
+      <figure id="fig-bridge-again" name="The bridge from the market">
+        <image id="img-toll-bridge"/>
+      </figure>
+      <pageEnd balance="false"/>
+    </section>
+    <section name="ferry-shrine">
+      <title>The Ferry Shrine</title>
+      <p>The shrine’s keeper teaches <spellRef ref="fork-the-current" value="name"/> to ferry hands.</p>
+      <spellBlock ref="fork-the-current"/>
+    </section>
+  </chapter>
+  <chapter name="creatures" kind="appendix">
+    <chapterTitle>Creatures of the Forks</chapterTitle>
+    <section name="creatures">
+      <title>Creatures</title>
+      <p>The <monsterRef ref="toll-warden" value="name"/> keeps order; a <monsterRef ref="bandit" value="name"/> or two works the road; the <monsterRef ref="pike-spirit" value="name"/> haunts the weir.</p>
+      <monsterStatblock ref="toll-warden"/>
+      <monsterStatblock ref="bandit"/>
+    </section>
+  </chapter>
+  <credits>
+    <role name="Author"/>
+    <role name="Editor" plural="Editors"/>
+    <credit name="Test Author" role="Author"/>
+    <credit name="A. N. Other" role="Editor"/>
+    <verbatimCredit>Thanks to everyone who crossed the bridge.</verbatimCredit>
+    <isbn value="978-1-23456-789-7" format="pdf"/>
+    <imageCredits/>
+  </credits>
+  <license file="dmsguild-license.xml" date="2026" ownedBy="The Grand Forks Test Suite"/>
+  <treasure>
+    <parcel number="2">
+      <coins>
+        <gp count="60"/>
+      </coins>
+      <gems>
+        <gem cp="10000">a river pearl</gem>
+      </gems>
+      <magicItems>
+        <item ref="ferrymans-lantern"/>
+      </magicItems>
+    </parcel>
+    <parcel number="1">
+      <coins>
+        <gp count="25"/>
+        <sp count="140"/>
+      </coins>
+    </parcel>
+  </treasure>
+  <data>
+    <global>
+      <value name="fordDepth" value="4 feet"/>
+    </global>
+  </data>
+  <reference>
+    <image id="img-cover" src="art/cover.png" name="Grand Forks" credit="Slop Art Studio"/>
+    <image id="img-map" src="art/grand-forks-map.png" name="Map of Grand Forks" credit="Slop Art Studio (maps)"/>
+    <image id="img-toll-bridge" src="art/toll-bridge.png" name="The Toll Bridge" credit="A. N. Other"/>
+    <image id="img-lantern" src="art/lantern.png" name="Ferryman's Lantern"/>
+    <noun id="river-sallow" name="River Sallow" shortName="Sallow" kind="place"/>
+    <noun id="grand-forks" name="Grand Forks" kind="place"/>
+    <noun id="copperway" name="Copperway" kind="place"/>
+    <data id="bridgeToll" value="2 cp"/>
+    <monster id="forkjaw-pike" file="forkjaw-pike.xml" monster="forkjaw-pike"/>
+    <item id="ferrymans-lantern" file="ferrymans-lantern.xml"/>
+    <spell id="fork-the-current" file="../fork-the-current.xml"/>
+    <monster id="toll-warden" file="../townsfolk.xml" monster="toll-warden"/>
+    <monster id="bandit" file="../../../../shared/internal/monsters/bandit.xml" monster="bandit"/>
+    <monster id="pike-spirit" file="../townsfolk.xml" monster="pike-spirit"/>
+  </reference>
+  <chapterOrder>
+    <ch name="introduction"/>
+    <ch name="tollside"/>
+    <ch name="millward"/>
+    <ch name="wedge"/>
+    <ch name="creatures"/>
+  </chapterOrder>
+</supplement>

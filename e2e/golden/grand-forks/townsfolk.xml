@@ -1,0 +1,103 @@
+<monsters xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../schemas/monster-template-schema.xsd">
+  <name>Townsfolk of Grand Forks</name>
+  <shortNoun>townsperson</shortNoun>
+  <monster id="toll-warden">
+    <name>Toll Warden</name>
+    <heading>
+      <sizes>
+        <size>Medium</size>
+      </sizes>
+      <type>Humanoid</type>
+      <alignment>Neutral</alignment>
+      <armorClass>10</armorClass>
+      <initiativeBonus/>
+      <hitDice>1</hitDice>
+      <proficiencyBonus>2</proficiencyBonus>
+      <speeds>
+        <speed id="ground" name="ground" value="30"/>
+      </speeds>
+    </heading>
+    <statBlock>
+      <stat name="str" value="10"/>
+      <stat name="dex" value="10"/>
+      <stat name="con" value="10"/>
+      <stat name="int" value="10"/>
+      <stat name="wis" value="10"/>
+      <stat name="cha" value="10"/>
+    </statBlock>
+    <attributes>
+      <challengeRatings>
+        <challengeRating value="0"/>
+      </challengeRatings>
+    </attributes>
+  </monster>
+  <monster id="pike-spirit" template="true">
+    <name>Pike Spirit</name>
+    <formulas>
+      <formula id="spiritAc" min="11">
+        <constant value="0"/>
+      </formula>
+      <choice id="form">
+        <option value="river"/>
+        <option value="pond"/>
+      </choice>
+    </formulas>
+    <heading>
+      <sizes>
+        <size>Medium</size>
+      </sizes>
+      <type>Humanoid</type>
+      <alignment>Neutral</alignment>
+      <armorClass>10</armorClass>
+      <initiativeBonus/>
+      <hitDice>1</hitDice>
+      <proficiencyBonus>2</proficiencyBonus>
+      <speeds>
+        <speed id="ground" name="ground" value="30"/>
+      </speeds>
+    </heading>
+    <statBlock>
+      <stat name="str" value="10"/>
+      <stat name="dex" value="10"/>
+      <stat name="con" value="10"/>
+      <stat name="int" value="10"/>
+      <stat name="wis" value="10"/>
+      <stat name="cha" value="10"/>
+    </statBlock>
+    <attributes>
+      <challengeRatings>
+        <challengeRating value="0"/>
+      </challengeRatings>
+    </attributes>
+  </monster>
+  <monster id="ferry-hand">
+    <name>Ferry Hand</name>
+    <heading>
+      <sizes>
+        <size>Medium</size>
+      </sizes>
+      <type>Humanoid</type>
+      <alignment>Lawful Good</alignment>
+      <armorClass>10</armorClass>
+      <initiativeBonus/>
+      <hitDice>1</hitDice>
+      <proficiencyBonus>2</proficiencyBonus>
+      <speeds>
+        <speed id="ground" name="ground" value="30"/>
+      </speeds>
+    </heading>
+    <statBlock>
+      <stat name="str" value="10"/>
+      <stat name="dex" value="10"/>
+      <stat name="con" value="10"/>
+      <stat name="int" value="10"/>
+      <stat name="wis" value="10"/>
+      <stat name="cha" value="10"/>
+    </statBlock>
+    <attributes>
+      <challengeRatings>
+        <challengeRating value="0"/>
+      </challengeRatings>
+    </attributes>
+  </monster>
+</monsters>
