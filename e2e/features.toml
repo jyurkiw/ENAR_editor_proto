@@ -15,7 +15,7 @@
 "New spell dialog" = ["test_02_new_files.py::test_new_spell"]
 "Tabs: open, switch, close" = ["test_02_new_files.py::test_tabs"]
 "Tabs keep their own selection" = ["test_files_and_tabs.py::test_each_tab_keeps_its_selection"]
-"Closing a tab with unapplied edits" = ["test_files_and_tabs.py::test_closing_a_tab_with_unapplied_edits"]
+"Closing a tab with unapplied edits asks" = ["test_files_and_tabs.py::test_closing_a_tab_with_unapplied_edits"]
 "Opening a file the editor can't take" = ["test_files_and_tabs.py::test_files_it_cannot_open"]
 "Confirm dialogs: Cancel and OK" = ["test_03_cover.py::test_remove_the_skeleton_cover", "test_04_chapters.py::test_rename_and_delete_the_scratch_chapter", "test_05_intro_prose.py::test_delete_a_paragraph"]
 "Cancel on every delete" = ["test_applies.py::test_cancel_keeps_it"]
@@ -38,6 +38,8 @@
 "Ctrl+K: entries, chapters, figures" = ["test_05_intro_prose.py::test_ctrl_k", "test_05_intro_prose.py::test_the_map_figure", "test_06_tollside.py::test_the_toll_table"]
 "Ctrl+K: other tags and their forms" = ["test_05_intro_prose.py::test_ctrl_k", "test_10_millward_and_wedge.py::test_the_weir"]
 "Ctrl+K: library picks add their entries" = ["test_10_millward_and_wedge.py::test_the_weir", "test_11_appendix_and_back_matter.py::test_appendix_stat_blocks"]
+"Prose: typing on through a tag; Escape keeps the caret" = ["test_prose.py::test_typing_on_through_a_tag", "test_prose.py::test_escape_puts_the_caret_back"]
+"Reference form: Escape closes + Add" = ["test_prose.py::test_escape_closes_the_add_menu"]
 "Ctrl+K: groups in order, refs capped" = ["test_files_and_tabs.py::test_the_generator_list"]
 "Chip forms: edit a chip" = ["test_05_intro_prose.py::test_ctrl_k"]
 "Read-aloud and dialog boxes" = ["test_05_intro_prose.py::test_read_aloud_box", "test_06_tollside.py::test_the_wardens_dialog", "test_06_tollside.py::test_delete_a_box"]
@@ -57,6 +59,9 @@
 "Raw XML editor" = ["test_08_stat_blocks.py::test_raw_xml"]
 "Template stat blocks: formulas and choices" = ["test_11_appendix_and_back_matter.py::test_a_template"]
 "Preview panel" = ["test_08_stat_blocks.py::test_preview"]
+"Preview: renders only what it shows, once" = ["test_preview.py::test_it_renders_only_what_it_shows"]
+"Preview: the last picture stays up, faded" = ["test_preview.py::test_the_last_picture_stays_up_faded"]
+"Preview: without pdflatex" = ["test_preview.py::test_without_pdflatex"]
 "Magic item form" = ["test_09_item_and_spell.py::test_the_lantern", "test_09_item_and_spell.py::test_the_description"]
 "Spell form" = ["test_09_item_and_spell.py::test_the_spell"]
 "Credits" = ["test_11_appendix_and_back_matter.py::test_credits"]
@@ -67,4 +72,3 @@
 
 [pending]
 "This X isn't in the file any more" = "the editor reads a file only when it opens it, so a change on disk shows once the tab is reopened; an open form can't see its element go"
-"Preview: one render for quick applies, the faded stale picture, no pdflatex" = "not written yet"

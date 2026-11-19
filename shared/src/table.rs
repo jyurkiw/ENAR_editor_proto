@@ -80,6 +80,9 @@ pub enum TableEdit {
     Spans { at: TableAt, part: Part, row: usize, col: usize, colspan: String, rowspan: String },
     /// Add an empty cell at the end of a row (one short of the headers).
     AddCell { at: TableAt, part: Part, row: usize },
+    /// Delete one cell of a row (one too many for the headers, or made spare by a span).
+    /// A row's only cell stays.
+    DeleteCell { at: TableAt, part: Part, row: usize, col: usize },
     /// A new row after `after`, or first when None: one empty cell per header.
     AddRow { at: TableAt, part: Part, after: Option<usize> },
     DeleteRow { at: TableAt, part: Part, row: usize },
@@ -99,6 +102,7 @@ impl TableEdit {
             | TableEdit::Spans { at, .. }
             | TableEdit::AddCell { at, .. }
             | TableEdit::AddRow { at, .. }
+            | TableEdit::DeleteCell { at, .. }
             | TableEdit::DeleteRow { at, .. }
             | TableEdit::SwapRows { at, .. } => at,
         }
@@ -323,22 +327,36 @@ pub fn plan(source: &str, e: &TableEdit) -> Result<String, String> {
             vec![insert_at(source, &nodes, r, "td", n, "<td></td>").ok_or("can't place the cell")?]
         }
         TableEdit::AddRow { part, after, .. } => {
-            let p = kid(&nodes, t, part.tag()).ok_or("the table has no such part")?;
-            let trs: Vec<&StructNode> = kids(&nodes, p, "tr").collect();
             // As many cells as headers; without headers, as many as the widest row.
             let width = if ths.is_empty() {
                 all_rows.iter().map(|r| kids(&nodes, r, "td").count()).max().unwrap_or(1).max(1)
             } else {
                 ths.len()
             };
+            let unit = edit::indent_unit(source);
+            let row_xml = |lined: bool| {
+                if lined {
+                    format!("<tr>\n{}\n</tr>", vec![format!("{unit}<td></td>"); width].join("\n"))
+                } else {
+                    format!("<tr>{}</tr>", "<td></td>".repeat(width))
+                }
+            };
+            let Some(p) = kid(&nodes, t, part.tag()) else {
+                // No <footer> yet: the first footer row makes it, after the body, with its row
+                // laid out like the body's first.
+                if *part != Part::Footer {
+                    return Err("the table has no such part".into());
+                }
+                let body = kid(&nodes, t, "tableBody").ok_or("the table has no body")?;
+                let lined = kids(&nodes, body, "tr").next().is_some_and(|r| source[r.start..r.end].contains('\n'));
+                let row = row_xml(lined).replace('\n', &format!("\n{unit}"));
+                let xml = format!("<footer>\n{unit}{row}\n</footer>");
+                return edit::apply(source, &[edit::insert_child(source, Anchor::After(body), &xml).ok_or("can't place the footer")?]);
+            };
+            let trs: Vec<&StructNode> = kids(&nodes, p, "tr").collect();
             // Lay it out like the first row: cells inline, or one per line.
             let lined = trs.first().is_some_and(|r| source[r.start..r.end].contains('\n'));
-            let xml = if lined {
-                let unit = edit::indent_unit(source);
-                format!("<tr>\n{}\n</tr>", vec![format!("{unit}<td></td>"); width].join("\n"))
-            } else {
-                format!("<tr>{}</tr>", "<td></td>".repeat(width))
-            };
+            let xml = row_xml(lined);
             let anchor = match after {
                 Some(i) => Anchor::After(trs.get(*i).ok_or("that row isn't there any more")?),
                 None => match trs.first() {
@@ -347,6 +365,15 @@ pub fn plan(source: &str, e: &TableEdit) -> Result<String, String> {
                 },
             };
             vec![edit::insert_child(source, anchor, &xml).ok_or("can't place the row")?]
+        }
+        TableEdit::DeleteCell { part, row, col, .. } => {
+            let r = row_of(&nodes, t, *part, *row)?;
+            let cells: Vec<&StructNode> = kids(&nodes, r, "td").collect();
+            if cells.len() <= 1 {
+                return Err("a row needs at least one cell".into());
+            }
+            let c = cells.get(*col).ok_or("that cell isn't there any more; reopen the file")?;
+            vec![edit::remove_element(source, c)]
         }
         TableEdit::DeleteRow { part, row, .. } => {
             let p = kid(&nodes, t, part.tag()).ok_or("the table has no such part")?;
@@ -384,6 +411,22 @@ fn row_of<'a>(nodes: &'a [StructNode], t: &StructNode, part: Part, row: usize) -
     kid(nodes, t, part.tag())
         .and_then(|p| kids(nodes, p, "tr").nth(row))
         .ok_or_else(|| "that row isn't there any more; reopen the file".to_string())
+}
+
+/// How many columns each row covers: its cells' colspans, plus the columns cells above it
+/// still cover with their rowspans.
+pub fn row_widths(rows: &[RowView]) -> Vec<usize> {
+    let n = |s: &str| s.trim().parse::<usize>().unwrap_or(1).max(1);
+    // (columns, rows still to cover) for each cell spanning down into the next rows.
+    let mut carry: Vec<(usize, usize)> = Vec::new();
+    rows.iter()
+        .map(|r| {
+            let width = r.cells.iter().map(|c| n(&c.colspan)).sum::<usize>() + carry.iter().map(|(c, _)| c).sum::<usize>();
+            carry = carry.iter().filter(|(_, left)| *left > 1).map(|(c, left)| (*c, left - 1)).collect();
+            carry.extend(r.cells.iter().filter(|c| n(&c.rowspan) > 1).map(|c| (n(&c.colspan), n(&c.rowspan) - 1)));
+            width
+        })
+        .collect()
 }
 
 /// The number of cells each column-aware change would touch, for confirms.
@@ -529,10 +572,27 @@ mod tests {
         assert!(plan(&out, &TableEdit::DeleteRow { at: at("t"), part: Part::Body, row: 0 }).is_err(), "the last body row stays");
         let out = plan(SRC, &TableEdit::DeleteRow { at: at("t"), part: Part::Footer, row: 0 }).unwrap();
         assert!(!view(&out, "t").has_footer && !out.contains("<footer>"));
+        // With no footer, the first footer row makes one after the body.
+        let again = plan(&out, &TableEdit::AddRow { at: at("t"), part: Part::Footer, after: None }).unwrap();
+        let v = view(&again, "t");
+        assert!(v.has_footer && v.footer.len() == 1 && v.footer[0].cells.len() == 2, "{again}");
+        assert!(again.contains("</tableBody>\n            <footer>\n"), "{again}");
         // A short row gets a cell.
         let src = SRC.replace("<tr><td>10</td><td>Caught.</td></tr>", "<tr><td>10</td></tr>");
         let out = plan(&src, &TableEdit::AddCell { at: at("t"), part: Part::Body, row: 1 }).unwrap();
         assert!(out.contains("<tr><td>10</td><td></td></tr>"));
+        // Spans count as columns: across, and down into the rows below.
+        let cell = |t: &str, c: &str, r: &str| CellView { text: t.into(), colspan: c.into(), rowspan: r.into() };
+        let rows = vec![
+            RowView { cells: vec![cell("a", "2", ""), cell("b", "", "2")] },
+            RowView { cells: vec![cell("c", "", ""), cell("d", "", "")] },
+            RowView { cells: vec![cell("e", "", ""), cell("f", "", ""), cell("g", "", "")] },
+        ];
+        assert_eq!(row_widths(&rows), vec![3, 3, 3]);
+        // And a spare one goes; a row's only cell stays.
+        let back = plan(&out, &TableEdit::DeleteCell { at: at("t"), part: Part::Body, row: 1, col: 1 }).unwrap();
+        assert!(back.contains("<tr><td>10</td></tr>"), "{back}");
+        assert!(plan(&back, &TableEdit::DeleteCell { at: at("t"), part: Part::Body, row: 1, col: 0 }).is_err());
     }
 
     #[test]

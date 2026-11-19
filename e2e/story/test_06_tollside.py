@@ -1,13 +1,9 @@
 """Step 06: Tollside. The toll table, made from a table link (headers added, filled and
-moved, rows added, moved and deleted, a cell's spans set and cleared) and placed by that
-link; a "Toll Disputes" sidebar from a sidebar link; the warden's dialog box with a speaker
-and a trigger; the bridge toll made a variable and used again through Ctrl+K; the toll
-bridge picture.
-
-Two table gaps shape this step (see the plan's findings): there's no way to add a footer
-or to delete a cell, so the new table's first row (a cell over once it has headers) is
-replaced rather than fixed, and the spans are cleared again so every row still matches
-its headers."""
+moved; the new table's spare cell deleted; rows added, moved and deleted; a cell spanning
+two columns, and the cell it covers deleted; a footer row across the table) and placed by
+that link; a "Toll Disputes" sidebar from a sidebar link; the warden's dialog box with a
+speaker and a trigger; the bridge toll made a variable and used again through Ctrl+K; the
+toll bridge picture."""
 from lxml import etree
 from playwright.sync_api import expect
 
@@ -113,16 +109,27 @@ def test_the_toll_table(ui):
     ui.click_applies(headers(ui).nth(3).get_by_title('Delete (with its column)'))
     assert [th.text for th in table(ui).findall('header/th')] == ['Traveller', 'Toll', 'Notes']
 
-    # The new table's row predates the headers and is a cell over; rows added now fit.
-    expect(rows(ui).first.locator('.hint.bad')).to_have_text("cell count doesn't match the headers")
-    for i, values in enumerate(TOLLS):
+    # The new table's row predates the headers and is a cell over: its spare cell goes.
+    first = rows(ui).first
+    expect(first.locator('.hint.bad')).to_have_text("cell count doesn't match the headers")
+    expect(first.get_by_title('Delete this cell')).to_have_count(1)        # only the spare one
+    ui.click_applies(first.get_by_title('Delete this cell'))
+    expect(first.locator('.hint.bad')).to_have_count(0)
+    # The rest added below it, then the first filled in last.
+    for i, values in enumerate(TOLLS[1:]):
         ui.click_applies(rows(ui).nth(i).get_by_role('button', name='+ row below'))
         expect(rows(ui).nth(i + 1).locator('.cell')).to_have_count(3)
         for col, text in enumerate(values):
             c = cell(ui, i + 1, col)
             Prose(ui, c).type(text)
             ui.apply(c)
-    ui.click_applies(rows(ui).first.get_by_title('Delete row'))
+    for col, text in enumerate(TOLLS[0]):
+        c = cell(ui, 0, col)
+        Prose(ui, c).type(text)
+        ui.apply(c)
+    # A stray row, deleted.
+    ui.click_applies(rows(ui).nth(2).get_by_role('button', name='+ row below'))
+    ui.click_applies(rows(ui).nth(3).get_by_title('Delete row'))
     assert body_text(ui) == [list(v) for v in TOLLS]
 
     # Move the herd row up, and back.
@@ -131,17 +138,32 @@ def test_the_toll_table(ui):
     ui.click_applies(rows(ui).nth(1).get_by_title('Move down'))
     assert body_text(ui) == [list(v) for v in TOLLS]
 
-    # Spans: the cart's notes across two columns, then back.
-    c = cell(ui, 1, 2)
+    # Spans: the cart's toll across two columns, and the notes cell it covers deleted.
+    c = cell(ui, 1, 1)
     c.get_by_role('button', name='Spans').click()
     c.locator('label.span-field', has_text='Cols').locator('input').fill('2')
     ui.click_applies(c.get_by_role('button', name='Apply spans'))
-    assert table(ui).findall('tableBody/tr')[1].findall('td')[2].get('colspan') == '2'
     expect(c.locator('.span-badge')).to_be_visible()
+    ui.click_applies(cell(ui, 1, 2).get_by_title('Delete this cell'))
+    Prose(ui, c).type(', per axle')
+    ui.apply(c)
+    cart = table(ui).findall('tableBody/tr')[1].findall('td')
+    assert [(''.join(td.itertext()), td.get('colspan')) for td in cart] == [('Cart or wagon', None), ('5 cp, per axle', '2')]
+    expect(rows(ui).nth(1).locator('.hint.bad')).to_have_count(0)
+
+    # A footer row across the whole table.
+    ui.click_applies(ui.body.get_by_role('button', name='+ Add a footer row'))
+    foot = ui.body.locator('.row-card').filter(has=ui.page.locator('.row-name', has_text='Footer row 1'))
+    c = foot.locator('.cell').first
+    Prose(ui, c).type('Tolls double after dark.')
+    ui.apply(c)
     c.get_by_role('button', name='Spans').click()
-    c.locator('label.span-field', has_text='Cols').locator('input').fill('')
+    c.locator('label.span-field', has_text='Cols').locator('input').fill('3')
     ui.click_applies(c.get_by_role('button', name='Apply spans'))
-    assert table(ui).findall('tableBody/tr')[1].findall('td')[2].get('colspan') is None
+    while foot.locator('.cell').count() > 1:
+        ui.click_applies(foot.locator('.cell').last.get_by_title('Delete this cell'))
+    tds = table(ui).findall('footer/tr/td')
+    assert [(''.join(td.itertext()), td.get('colspan')) for td in tds] == [('Tolls double after dark.', '3')]
 
     # The toll on foot is the bridge toll: a data ref in a cell, through Ctrl+K.
     c = cell(ui, 0, 1)

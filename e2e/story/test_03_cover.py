@@ -3,6 +3,8 @@ the <reference> block made and the art's images entered in it, then the cover fi
 title, cover art, footer, text colour, both logos and the contents-page logo.
 
 The supplement's <productDescription> has no form yet, so it isn't written here."""
+import re
+
 from playwright.sync_api import expect
 
 SUPP = 'grand-forks/supplement.xml'
@@ -39,6 +41,9 @@ def test_add_a_cover_and_the_reference_block(ui):
     ui.click_applies(notice.get_by_role('button', name='Add a cover'))
     expect(notice).to_have_count(0)
     assert ui.xml(SUPP).find('cover') is not None
+    # Removed and added again, the cover leaves no extra blank lines (issue 6).
+    text = (ui.root / SUPP).read_text(encoding='utf-8')
+    assert '\n\n\n' not in text, text[:400]
 
     ui.select('supplement')         # the apply selected the new cover
     ui.click_applies(ui.viewer.get_by_role('button', name='Create <reference>'))
@@ -57,6 +62,8 @@ def test_images_in_the_reference_block(ui):
         card.locator('input[data-attr=name]').fill(title)
         if artist:
             card.locator('input[data-attr=credit]').fill(artist)
+        if id_ == 'img-map':
+            ui.field('Kind', scope=card).select_option('map')
         ui.apply(card)
         expect(ui.body.locator(f'[id="ref-card-image:{id_}"]')).to_be_visible()
 
@@ -65,6 +72,7 @@ def test_images_in_the_reference_block(ui):
     assert images['img-cover'].get('src') == 'art/cover.png'
     assert images['img-toll-bridge'].get('credit') == 'A. N. Other'
     assert images['img-lantern'].get('credit') is None
+    assert images['img-map'].get('kind') == 'map'
 
 
 def test_fill_in_the_cover(ui):
@@ -117,3 +125,41 @@ def test_fill_in_the_cover(ui):
     assert cover.find('dmsguildLogo') is not None
     assert cover.find('enigmaLogo').get('place') == 'above'
     assert root.find('contents/enigmaLogo') is not None
+
+
+def test_the_product_description(ui):
+    """Two paragraphs and a bulleted list (issue 3: it used to have no form)."""
+    from pages.prose import Prose
+    ui.select('supplement')
+    add = ui.viewer.locator('.notice.info', has_text='Add:')
+    ui.click_applies(add.get_by_role('button', name='Product description', exact=True))
+    ui.select('productDescription')
+    expect(ui.body.locator('.block-kind-name')).to_have_text('Product description')
+    expect(ui.body.locator('.block-header')).to_have_count(0)            # no title or name
+    # The section editor's other blocks: only a list fits here.
+    options = ui.body.locator('.body-tools select.add-menu option').all_inner_texts()
+    assert options[1:] == ['List'], options
+    ui.click_applies(ui.body.locator('.body-tools').get_by_role('button', name='+ ¶ at start'))
+    paras = ui.body.locator('.body-block.para')
+    texts = ['A small town on a minor trade road, where a river splits in two.',
+             'Grand Forks grew as three settlements that a toll bridge and two ferries tied together.']
+    for i, text in enumerate(texts):
+        if i:
+            ui.click_applies(paras.nth(i - 1).get_by_role('button', name='+ ¶ below'))
+        Prose(ui, paras.nth(i)).type(text)
+        ui.apply(paras.nth(i))
+    ui.applies(lambda: paras.nth(1).locator('select.add-menu').select_option('list'))
+    items = ['Three pieces of a town, each with its own trouble', 'A toll table, a pike and a spell', 'Placeholder art throughout']
+    for i, text in enumerate(items):
+        rows = ui.body.locator('.body-block')
+        if i:
+            ui.click_applies(rows.nth(i - 1).get_by_role('button', name='+ item below'))
+        Prose(ui, rows.nth(i)).type(text)
+        ui.apply(rows.nth(i))
+    d = ui.one(SUPP, '/supplement/productDescription')
+    assert [k.tag for k in d] == ['p', 'p', 'list']
+    assert [p.text for p in d.findall('p')] == texts
+    assert [li.text for li in d.find('list').findall('li')] == items
+    # Where the schema wants it: after the contents, before the chapters.
+    tags = [k.tag for k in ui.xml(SUPP)]
+    assert tags.index('contents') < tags.index('productDescription') < tags.index('chapter'), tags

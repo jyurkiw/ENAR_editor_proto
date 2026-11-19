@@ -164,13 +164,15 @@ fn FileTabs() -> impl IntoView {
                             class:active=move || app.active.get() == Some(id)
                             title=path
                             on:click=move |_| app.active.set(Some(id))
-                            on:auxclick=move |ev| if ev.button() == 1 { app.close_tab(id) }
+                            on:auxclick=move |ev| if ev.button() == 1 { app.close_tab_asking(id) }
                         >
                             <span class="tab-name">{name}</span>
                             <span class="tab-folder">{folder}</span>
-                            <button class="close" title="Close" on:click=move |ev| {
+                            // mousedown keeps the focus where it is: taken out of a paragraph,
+                            // it would apply it before the question.
+                            <button class="close" title="Close" on:mousedown=move |ev: leptos::ev::MouseEvent| ev.prevent_default() on:click=move |ev| {
                                 ev.stop_propagation();
-                                app.close_tab(id);
+                                app.close_tab_asking(id);
                             }>"×"</button>
                         </div>
                     }

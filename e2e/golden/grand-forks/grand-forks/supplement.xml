@@ -12,6 +12,15 @@
   <contents>
     <enigmaLogo/>
   </contents>
+  <productDescription>
+    <p>A small town on a minor trade road, where a river splits in two.</p>
+    <p>Grand Forks grew as three settlements that a toll bridge and two ferries tied together.</p>
+    <list>
+      <li>Three pieces of a town, each with its own trouble</li>
+      <li>A toll table, a pike and a spell</li>
+      <li>Placeholder art throughout</li>
+    </list>
+  </productDescription>
   <chapter name="introduction" columns="1" credit="Test Author">
     <chapterTitle>Where the River Splits</chapterTitle>
     <section name="intro-opening">
@@ -77,8 +86,7 @@
         </tr>
         <tr>
           <td>Cart or wagon</td>
-          <td>5 cp</td>
-          <td>Per axle</td>
+          <td colspan="2">5 cp, per axle</td>
         </tr>
         <tr>
           <td>Herd animals</td>
@@ -86,6 +94,11 @@
           <td>The warden counts them</td>
         </tr>
       </tableBody>
+      <footer>
+        <tr>
+          <td colspan="3">Tolls double after dark.</td>
+        </tr>
+      </footer>
     </table>
     <sidebar id="toll-disputes">
       <title>Toll Disputes</title>
@@ -181,7 +194,7 @@
   </data>
   <reference>
     <image id="img-cover" src="art/cover.png" name="Grand Forks" credit="Slop Art Studio"/>
-    <image id="img-map" src="art/grand-forks-map.png" name="Map of Grand Forks" credit="Slop Art Studio (maps)"/>
+    <image id="img-map" src="art/grand-forks-map.png" name="Map of Grand Forks" credit="Slop Art Studio (maps)" kind="map"/>
     <image id="img-toll-bridge" src="art/toll-bridge.png" name="The Toll Bridge" credit="A. N. Other"/>
     <image id="img-lantern" src="art/lantern.png" name="Ferryman's Lantern"/>
     <noun id="river-sallow" name="River Sallow" shortName="Sallow" kind="place"/>

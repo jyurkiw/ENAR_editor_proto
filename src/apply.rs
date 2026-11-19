@@ -59,6 +59,7 @@ fn pick(change: &Change, on_root: bool, d: &DocData) -> Option<usize> {
             ChapterEdit::Update { model, .. } => chapter::find_chapter(&d.source, &d.nodes, &model.name),
             ChapterEdit::Add { name, .. } => chapter::find_chapter(&d.source, &d.nodes, name),
             ChapterEdit::Delete { .. } => Some(0),
+            ChapterEdit::Move { name, .. } => chapter::find_chapter(&d.source, &d.nodes, name),
         },
         // The selection stays: an entry the ref generator added mustn't move the page.
         Change::Reference { .. } => None,
@@ -377,6 +378,12 @@ fn saved(tab: DocTab, change: &Change, card: Option<&str>) {
                 });
             }
             TableEdit::AddCell { .. } | TableEdit::Spans { .. } => {}
+            TableEdit::DeleteCell { at, part, row, col } => {
+                // The row's cells from here on shifted left.
+                let (at, part, row, from) = (at.clone(), *part, *row, *col);
+                tab.cell_drafts.update(|d| d.retain(|(a, p, r, c), _| *a != at || *p != part || *r != row || *c < from));
+                tab.cell_failed.update(|f| f.retain(|(a, p, r, c)| *a != at || *p != part || *r != row || *c < from));
+            }
             TableEdit::AddRow { at, part, after } => {
                 // Rows from here on shifted.
                 let (at, part, from) = (at.clone(), *part, after.map_or(0, |a| a + 1));

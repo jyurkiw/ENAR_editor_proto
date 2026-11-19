@@ -19,6 +19,16 @@ GOLDEN = harness.E2E / 'golden' / 'grand-forks'
 # Text files compared as they are; XML files compared after re-indenting.
 WORDS = 'enigma-words.txt'
 
+# LaTeX errors the build is allowed, and why. Any other counts.
+KNOWN_LATEX = [
+    # The Windows copy of the dnd class fails on DndReadAloud and DndSidebar with no options;
+    # the Linux (WSL) one doesn't.
+    "/tcb/\\NoValue",
+    # The compiler prints neither colspan nor rowspan, and takes a table's columns from its
+    # shortest row (jyurkiw/enigma_narrative#6). The toll table has both.
+    "Extra alignment tab has been changed to \\cr",
+]
+
 # Warnings the build is allowed, and why.
 EXPECTED = [
     # The compiler records ISBNs but doesn't print them yet.
@@ -78,6 +88,8 @@ def test_the_compiler_builds_it(app):
     assert 'Title: Grand Forks' in sheet
     checks = sheet.split('Images to check', 1)[1].split('\n\n', 1)[0]
     assert "Ferryman's Lantern" in checks, sheet
+    # The product description, which the editor writes since issue 3.
+    assert 'A small town on a minor trade road' in sheet.split('Product description:', 1)[1], sheet
 
     warnings = [l[len('warning: '):] for l in text.splitlines() if l.startswith('warning: ')]
     unexpected = []
@@ -85,11 +97,8 @@ def test_the_compiler_builds_it(app):
         if any(p.search(w) for p in EXPECTED):
             continue
         if w.startswith('pdflatex reported'):
-            # The Windows copy of the dnd class fails on DndReadAloud and DndSidebar with no
-            # options ("I do not know the key '/tcb/\NoValue'"); the Linux one doesn't. Any
-            # other LaTeX error counts.
             errs = latex_errors(out / 'grand_forks.log')
-            if errs and all("/tcb/\\NoValue" in e for e in errs):
+            if errs and all(any(k in e for k in KNOWN_LATEX) for e in errs):
                 continue
         unexpected.append(w)
     assert not unexpected, 'unexpected compiler warnings:\n' + '\n'.join(unexpected)

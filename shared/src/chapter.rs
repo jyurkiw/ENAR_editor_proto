@@ -67,6 +67,9 @@ pub enum ChapterEdit {
     Add { name: String, title: String, kind: String },
     /// Remove a chapter and its `<ch>`.
     Delete { name: String },
+    /// Move a chapter before the chapter named `before`, or after the last one, and its
+    /// `<ch>` the same way in chapterOrder.
+    Move { name: String, before: Option<String> },
 }
 
 fn attr(source: &str, n: &StructNode, name: &str) -> Option<String> {
@@ -393,6 +396,32 @@ pub fn plan(source: &str, change: &ChapterEdit) -> Result<String, String> {
             .ok_or("can't add the chapter to <chapterOrder>")?;
             edit::apply(source, &[s, o])
         }
+        ChapterEdit::Move { name, before } => {
+            let ci = find_chapter(source, &nodes, name).ok_or_else(|| format!("there's no chapter named \"{name}\""))?;
+            let target = match before {
+                Some(b) => Some(find_chapter(source, &nodes, b).ok_or_else(|| format!("there's no chapter named \"{b}\""))?),
+                None => None,
+            };
+            if target == Some(ci) {
+                return Ok(source.to_string());
+            }
+            let chapters: Vec<usize> = nodes[0].children.iter().copied().filter(|c| nodes[*c].tag == "chapter").collect();
+            let last = *chapters.last().ok_or("no chapters")?;
+            let mut splices = edit::move_block(source, &nodes[ci], target.map(|t| &nodes[t]), &nodes[last])?;
+            // Its <ch> follows it in chapterOrder, before the target's <ch> (or last).
+            let order = nodes[0].children.iter().map(|c| &nodes[*c]).find(|n| n.tag == "chapterOrder");
+            if let Some(order) = order {
+                let chs: Vec<&StructNode> = order.children.iter().map(|c| &nodes[*c]).filter(|c| c.tag == "ch").collect();
+                let ch = |n: &str| chs.iter().copied().find(|c| attr(source, c, "name").as_deref() == Some(n));
+                if let Some(me) = ch(name) {
+                    let to = before.as_deref().and_then(ch);
+                    if to.map(|t| t.start) != Some(me.start) {
+                        splices.extend(edit::move_element(source, me, to, chs.last().copied())?);
+                    }
+                }
+            }
+            edit::apply(source, &splices)
+        }
         ChapterEdit::Delete { name } => {
             let ci = find_chapter(source, &nodes, name).ok_or_else(|| format!("there's no chapter named \"{name}\""))?;
             let mut splices = vec![edit::remove_element(source, &nodes[ci])];
@@ -450,6 +479,29 @@ mod tests {
     fn model(src: &str, name: &str) -> ChapterModel {
         let nodes = parse(src).unwrap().nodes;
         read(src, &nodes, find_chapter(src, &nodes, name).unwrap())
+    }
+
+    #[test]
+    fn move_a_chapter_and_its_ch() {
+        let names = |src: &str| {
+            let nodes = parse(src).unwrap().nodes;
+            let of = |tag: &str| -> Vec<String> {
+                nodes.iter().filter(|n| n.tag == tag).filter_map(|n| attr(src, n, "name")).collect()
+            };
+            (of("chapter"), of("ch"))
+        };
+        // Up: "other" before "intro"; the <ch>s follow, and the blank lines stay one each.
+        let up = plan(SRC, &ChapterEdit::Move { name: "other".into(), before: Some("intro".into()) }).unwrap();
+        assert_eq!(names(&up).1, vec!["other", "intro"], "{up}");
+        assert!(up.starts_with("<supplement type=\"adventure\">\n    <chapter name=\"other\">"), "{up}");
+        assert!(up.contains("    </chapter>\n\n    <chapter name=\"intro\""), "{up}");
+        assert!(up.contains("<pageEnd balance=\"false\"/>\n    </chapter>\n\n    <data>"), "{up}");
+        assert!(!up.contains("\n\n\n"), "{up}");
+        // And back down, after the last: the file as it was.
+        let down = plan(&up, &ChapterEdit::Move { name: "other".into(), before: None }).unwrap();
+        assert_eq!(down, SRC);
+        // The data block's <chapter name="intro"> isn't a chapter and stays put.
+        assert_eq!(names(&down).0, vec!["intro", "other", "intro"]);
     }
 
     #[test]

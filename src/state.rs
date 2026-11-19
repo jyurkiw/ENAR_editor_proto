@@ -168,6 +168,24 @@ pub struct DocTab {
 }
 
 impl DocTab {
+    /// How many unapplied edits the tab's forms hold (drafts, and reference cards not yet
+    /// added).
+    pub fn unapplied(&self) -> usize {
+        self.cover_draft.with_untracked(|d| usize::from(d.is_some()))
+            + self.chapter_drafts.with_untracked(|d| d.len())
+            + self.ref_drafts.with_untracked(|d| d.len())
+            + self.ref_new.with_untracked(|d| d.len())
+            + self.header_drafts.with_untracked(|d| d.len())
+            + self.p_drafts.with_untracked(|d| d.len())
+            + self.table_drafts.with_untracked(|d| d.len())
+            + self.th_drafts.with_untracked(|d| d.len())
+            + self.cell_drafts.with_untracked(|d| d.len())
+            + self.li_drafts.with_untracked(|d| d.len())
+            + self.box_drafts.with_untracked(|d| d.len())
+            + self.raw_drafts.with_untracked(|d| d.len())
+            + self.fam_drafts.with_untracked(|d| d.len())
+    }
+
     fn new(id: u32, doc: OpenedDoc) -> Self {
         DocTab {
             id,
@@ -422,6 +440,20 @@ impl AppCtx {
                 Err(e) => self.show_error(e),
             }
         });
+    }
+
+    /// Closes a tab, asking first when it has unapplied edits (which closing throws away).
+    pub fn close_tab_asking(&self, id: u32) {
+        let app: AppCtx = *self;
+        let Some(tab) = self.tabs.with_untracked(|t| t.iter().find(|t| t.id == id).copied()) else { return };
+        let n = tab.unapplied();
+        if n == 0 {
+            app.close_tab(id);
+            return;
+        }
+        let name = tab.doc_untracked().name.clone();
+        let what = if n == 1 { "1 unapplied edit".to_string() } else { format!("{n} unapplied edits") };
+        crate::dialogs::ask(format!("Close {name}? Its {what} will be lost."), move || app.close_tab(id));
     }
 
     pub fn close_tab(&self, id: u32) {

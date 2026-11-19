@@ -5,9 +5,10 @@ pill from the right-click menu; a word added to the project word list; Ctrl+K fo
 condition, an ability check, a chapter and a figure; a read-aloud box; a numbered list;
 the town map as a figure.
 
-Chips go in one at a time, each into a paragraph with nothing unapplied: picking a tag in
-Ctrl+K applies the paragraph and then closes the tag's form when the apply finishes
-(see the plan's findings)."""
+Chips go in one at a time, replacing placeholder words in an applied paragraph; typing
+on through a chip is in edges/test_prose.py."""
+import re
+
 from lxml import etree
 from playwright.sync_api import expect
 
@@ -76,6 +77,9 @@ def test_the_river_is_a_place(ui):
     p.menu_item(menu, 'Turn into a person, place or thing').click()
     form = noun_form(p, short='Sallow')
     ui.click_applies(form.get_by_role('button', name='Make it'))
+    # The chip names the new entry, even with the box still focused (issue 10).
+    expect(p.chips()).to_have_text(['River Sallow'])
+    expect(p.chips().first).not_to_have_class(re.compile(r'chip-bad'))
     noun = ui.one(SUPP, '//reference/noun[@id="river-sallow"]')
     assert dict(noun.attrib) == {'id': 'river-sallow', 'name': 'River Sallow', 'shortName': 'Sallow', 'kind': 'place'}
 
@@ -209,8 +213,9 @@ def test_ctrl_k(ui):
     form = p.editor.locator('.insert-panel')
     expect(form.locator('.insert-title')).to_have_text('Ability check')
     ui.field('dc', scope=form).fill('13')
-    # Save closes the form, so focus leaves the paragraph: that applies it.
-    ui.click_applies(form.get_by_role('button', name='Save'))
+    form.get_by_role('button', name='Save').click()
+    expect(row.locator('.state-badge')).to_have_text('unapplied')      # the focus stays in the box
+    ui.apply(row)
     assert '<skillcheck stat="str" skill="athletics" dc="13"/>' in xml_of(sec(ui, 'intro-opening').findall('p')[1])
 
 
@@ -263,10 +268,10 @@ def test_a_numbered_list(ui):
     row = paras(ui).first
     Prose(ui, row).type('The town is really three towns:')
     ui.apply(row)
-    # One before it. (The new paragraph should get focus here and doesn't: see the
-    # plan's findings. Prose.type clicks into it.)
+    # One before it, which gets the focus.
     ui.click_applies(ui.body.locator('.body-tools').get_by_role('button', name='+ ¶ at start'))
     expect(paras(ui)).to_have_count(2)
+    expect(paras(ui).first.locator('.chip-box')).to_be_focused()
     Prose(ui, paras(ui).first).type('Each piece still keeps its own customs.')
     ui.apply(paras(ui).first)
     assert [p.text for p in sec(ui, 'three-pieces').findall('p')] == ['Each piece still keeps its own customs.', 'The town is really three towns:']

@@ -101,9 +101,7 @@ def test_quote_box_and_image(ui):
     ui.field('Alt text', scope=card).fill('A long grey pike with a forked lower jaw')
     ui.field('Title', scope=card).fill('Forkjaw Pike')
     ui.field('Artist', scope=card).fill('Slop Art Studio')
-    # The cutline box sits inside a <label>, so a click on it focuses the label's ＋ button
-    # instead (see the plan's findings): focus it from script.
-    Prose(ui, card.locator('label.field', has_text='Cutline')).type('A forkjaw, drawn from memory by someone who got away.', click=False)
+    Prose(ui, card.locator('.field', has_text='Cutline')).type('A forkjaw, drawn from memory by someone who got away.')
     ui.apply(card)
     img = root(ui).find('image')
     assert {k: img.get(k) for k in ('src', 'alt', 'name', 'credit')} == {
@@ -152,12 +150,14 @@ def test_distinction_table(ui):
         heads.nth(c).fill(h)
     # One row too many, filled in the wrong order: fix it in the draft.
     order = [want_rows[0], want_rows[2], want_rows[1], want_rows[3], ['5', 'A stray row']]
-    # A cell redraws on every keystroke and its caret goes back to the start, so typed text
-    # comes out backwards (see the plan's findings): each cell's text goes in in one event.
+    # Typed key by key, as a person would (this used to come out backwards: issue 14).
     for r, cells in enumerate(order):
         for c, text in enumerate(cells):
             box = rows.nth(r).locator('td').nth(c)
-            Prose(ui, box).replace(text)
+            p = Prose(ui, box)
+            p.box.click()
+            ui.page.keyboard.press('Control+a')
+            ui.page.keyboard.type(text)
             expect(box.locator('.chip-box')).to_have_text(text)
     rows.nth(2).get_by_title('Move up').click()
     rows.nth(4).get_by_title('Delete this row').click()

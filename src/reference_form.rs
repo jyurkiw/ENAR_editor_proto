@@ -30,7 +30,7 @@ fn known_attrs(tag: &str) -> &'static [&'static str] {
         "spell" => &["id", "name", "src", "file"],
         "item" => &["id", "name", "displayName", "src", "file"],
         "noun" => &["id", "name", "displayName", "shortName", "kind"],
-        "image" => &["id", "src", "name", "credit", "height", "span", "placement", "align"],
+        "image" => &["id", "src", "name", "credit", "kind", "height", "span", "placement", "align"],
         "data" => &["id", "value"],
         _ => &["id"],
     }
@@ -286,6 +286,8 @@ fn fields(card: Card, tag: &str, monster_ids: Memo<Vec<String>>, doc_dir: Stored
                     <div class="field-row">
                         <Field card attr="name" label="Title" hint="The artwork's title, printed by <imageCredits/>"/>
                         <Field card attr="credit" label="Artist" hint="Printed by <imageCredits/>"/>
+                        <Choice card attr="kind" label="Kind" options=vec![(String::new(), "art (default)".into()), ("art".into(), "art".into()), ("map".into(), "map".into())]
+                            hint="A map is credited as a map, and the datasheet lists it to check"/>
                     </div>
                     <div class="field-row">
                         <Field card attr="height" label="Height" placeholder="natural" check=height_problem hint="4in, 10cm, or 45% of the text height"/>
@@ -506,7 +508,7 @@ fn RefCard(
 
     view! {
         <div node_ref=el id=move || format!("ref-card-{}", key.get_value())
-            class=move || format!("ref-card {}", marker())
+            class="ref-card" class:drop-before=move || marker() == "drop-before" class:drop-after=move || marker() == "drop-after"
             class:open=open class:dirty=move || card.dirty() class:failed=failed class:dragging=move || drag.with(|d| d.as_deref() == Some(key.get_value().as_str()))
             on:focusout=on_focusout on:keydown=on_key on:dragover=on_dragover on:drop=on_drop
         >
@@ -630,7 +632,7 @@ pub fn ReferenceForm(tab: DocTab) -> impl IntoView {
     view! {
         <div class="ref-editor">
             <div class="ref-toolbar">
-                <div class="add-wrap">
+                <div class="add-wrap" on:keydown=move |ev: leptos::ev::KeyboardEvent| if ev.key() == "Escape" && menu.get_untracked() { ev.stop_propagation(); menu.set(false) }>
                     <button class="primary" on:click=move |_| menu.update(|m| *m = !*m)>"+ Add ▾"</button>
                     <Show when=move || menu.get()>
                         <div class="menu-backdrop" on:click=move |_| menu.set(false)></div>

@@ -43,17 +43,19 @@ def cdp_up(port):
         return None
 
 
-def launch(run_dir, port=None):
-    """Starts the e2e build with its own settings, WebView2 profile and change log in run_dir.
-    Returns (process, port) once WebView2's debugging port answers."""
+def launch(run_dir, port=None, env=None):
+    """Starts the e2e build with its own settings, WebView2 profile and change log in run_dir
+    (and any `env` on top). Returns (process, port) once WebView2's debugging port answers."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     port = port or free_port()
+    extra = env
     env = dict(os.environ,
                WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=f'--remote-debugging-port={port}',
                WEBVIEW2_USER_DATA_FOLDER=str(run_dir / 'webview'),
                ENIGMA_CONFIG_DIR=str(run_dir / 'config'),
                ENIGMA_E2E_LOG=str(run_dir / 'changes.jsonl'))
+    env.update(extra or {})
     log = open(run_dir / 'app.log', 'w', encoding='utf-8')
     proc = subprocess.Popen([str(EXE)], cwd=run_dir, env=env, stdout=log, stderr=subprocess.STDOUT)
     proc.log = log

@@ -129,7 +129,7 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
             shared::edit::start_tag(&d.source, n.start)?.value("name").map(FormKind::Chapter)
         }
         "reference" if top => Some(FormKind::Reference(None)),
-        "section" | "sidebar" => blocks::container_of(&d.source, &d.nodes, &d.parents, idx).map(|c| FormKind::Block(c, None)),
+        "section" | "sidebar" | "productDescription" => blocks::container_of(&d.source, &d.nodes, &d.parents, idx).map(|c| FormKind::Block(c, None)),
         _ => {
             let parent = d.parents.get(idx).copied().flatten()?;
             // A child of a section or sidebar: that container's editor, at the child.

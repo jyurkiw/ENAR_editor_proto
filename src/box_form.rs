@@ -90,6 +90,7 @@ fn BoxInfo(tab: DocTab, at: StoredValue<BoxAt>, view: Memo<Option<BoxView>>) -> 
     let section = move || match at.get_value().at {
         block::Container::Section { name, .. } => format!("in section \"{name}\""),
         block::Container::Sidebar { id, .. } => format!("in sidebar \"{id}\""),
+        block::Container::Description => "in the product description".to_string(),
     };
     view! {
         <div node_ref=el class="table-card" class:dirty=dirty
@@ -294,7 +295,7 @@ fn TextRow(
     };
 
     view! {
-        <div node_ref=el class=move || format!("body-block para {}", marker())
+        <div node_ref=el class="body-block para" class:drop-before=move || marker() == "drop-before" class:drop-after=move || marker() == "drop-after"
             class:dirty=dirty class:failed=failed class:dragging=dragging
             on:dragover=on_dragover on:drop=on_drop
             on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }

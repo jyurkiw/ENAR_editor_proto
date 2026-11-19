@@ -1,5 +1,5 @@
 """Step 04: the chapters. Add chapter… for the three pieces of the town and the appendix,
-the intro retitled, each chapter's sections laid out in its Contents (added, reordered,
+one moved up and back, the intro retitled, each chapter's sections laid out in its Contents (added, reordered,
 one dropped before Apply), and a scratch chapter renamed and then deleted."""
 from playwright.sync_api import expect
 
@@ -115,6 +115,23 @@ def test_lay_out_the_sections(ui):
 
     # The skeleton's empty paragraph is the only body any of them has so far.
     assert len(ui.xml(SUPP).findall('chapter/section')) == 2 + sum(len(c[3]) for c in CHAPTERS)
+
+
+def test_move_a_chapter_up_and_back(ui):
+    order = ['introduction', 'tollside', 'millward', 'wedge', 'creatures', 'scratch-chapter']
+    ui.select('chapter', name='wedge')
+    ui.click_applies(ui.body.get_by_role('button', name='↑ Move up'))
+    moved = ['introduction', 'tollside', 'wedge', 'millward', 'creatures', 'scratch-chapter']
+    assert chapter_names(ui) == (moved, moved)
+    # The moved chapter stays selected.
+    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-label', 'The Wedge · wedge')
+    ui.click_applies(ui.body.get_by_role('button', name='↓ Move down'))
+    assert chapter_names(ui) == (order, order)
+    # The first can't go up, the last can't go down.
+    ui.select('chapter', name='introduction')
+    expect(ui.body.get_by_role('button', name='↑ Move up')).to_be_disabled()
+    ui.select('chapter', name='scratch-chapter')
+    expect(ui.body.get_by_role('button', name='↓ Move down')).to_be_disabled()
 
 
 def test_rename_and_delete_the_scratch_chapter(ui, app):

@@ -70,7 +70,7 @@ def test_a_short_row_gets_a_cell(edge):
     path.write_text(text, encoding='utf-8')
     reopen(ui, SUPP)
     ui.select('table')
-    row = ui.body.locator('.row-card').last
+    row = ui.body.locator('.row-card').filter(has=ui.page.locator('.row-name', has_text='Row 4'))
     expect(row.locator('.cell-missing')).to_be_visible()
     ui.click_applies(row.get_by_role('button', name='+ cell'))
     tr = etree.parse(str(path)).getroot().findall('.//table/tableBody/tr')[-1]
@@ -90,43 +90,46 @@ def test_each_tab_keeps_its_selection(edge):
     expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'lair')
 
 
-def test_closing_a_tab_with_unapplied_edits(edge):
-    """What happens today, without asking (see the plan's findings): a paragraph being
-    edited is applied, because closing the tab takes the focus out of it; a stat block
-    card's draft, which applies only on Apply or Enter, is thrown away."""
+def test_closing_a_tab_with_unapplied_edits(edge, app):
+    """It asks (issue 15): Cancel keeps the tab and its edits; OK closes it, and the edits
+    go. Clicking × doesn't take the focus out of a paragraph, so nothing is applied."""
     ui = edge
     ui.open(SUPP)
     ui.select('section', name='mills')
+    before = (ui.root / SUPP).read_bytes()
     row = ui.body.locator('.body-block.para').first
     Prose(ui, row).type(' Words typed before closing.')
-    n = len(ui.app.changes())
+    n = len(app.changes())
+    app.confirms_asked()
+    app.answer_confirms(False)
     ui.tab(SUPP).locator('button.close').click()
+    assert app.confirms_asked() == ['Close supplement.xml? Its 1 unapplied edit will be lost.']
+    expect(ui.tab(SUPP)).to_have_count(1)
+    expect(row.locator('.state-badge')).to_have_text('unapplied')
+    ui.page.wait_for_timeout(300)
+    assert len(app.changes()) == n and (ui.root / SUPP).read_bytes() == before
+    app.answer_confirms(True)
+    ui.tab(SUPP).locator('button.close').click()
+    assert len(app.confirms_asked()) == 1
     expect(ui.tab(SUPP)).to_have_count(0)
-    for _ in range(200):                  # the apply the close set off (no tab left to watch)
-        if len(ui.app.changes()) > n:
-            break
-        ui.page.wait_for_timeout(50)
-    assert ui.app.changes()[-1]['result']['status'] == 'Saved'
-    assert 'Words typed before closing.' in (ui.root / SUPP).read_text(encoding='utf-8')
+    ui.page.wait_for_timeout(300)
+    assert len(app.changes()) == n and (ui.root / SUPP).read_bytes() == before
 
+    # A stat block card's draft counts too.
     ui.open(PIKE)
     ui.side('File structure')
     ui.page.locator('.tree .row.element[data-tag="monster"]').first.click()
-    before = (ui.root / PIKE).read_bytes()
     sec = ui.body.locator('details.sb-section', has=ui.page.locator('summary', has_text=re.compile('^Heading')))
-    card = sec.locator('.table-card').first
-    ui.field('Armor Class', scope=card).fill('19')
-    expect(card).to_have_class(re.compile(r'\bdirty\b'))
-    n = len(ui.app.changes())
+    ui.field('Armor Class', scope=sec.locator('.table-card').first).fill('19')
+    ui.tab(PIKE).locator('button.close').click()
+    assert app.confirms_asked() == ['Close forkjaw-pike.xml? Its 1 unapplied edit will be lost.']
+    expect(ui.tab(PIKE)).to_have_count(0)
+
+    # With nothing unapplied, it just closes.
+    ui.open(PIKE)
     ui.tab(PIKE).locator('button.close').click()
     expect(ui.tab(PIKE)).to_have_count(0)
-    ui.page.wait_for_timeout(500)
-    assert len(ui.app.changes()) == n
-    assert (ui.root / PIKE).read_bytes() == before
-    ui.open(PIKE)
-    ui.side('File structure')
-    ui.page.locator('.tree .row.element[data-tag="monster"]').first.click()
-    expect(ui.field('Armor Class', scope=card)).not_to_have_value('19')
+    assert app.confirms_asked() == []
 
 
 def test_the_generator_list(edge):

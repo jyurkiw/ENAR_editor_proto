@@ -274,7 +274,18 @@ that use them in `features.toml` itself, rather than `@covers` marks on the test
 ## Findings so far
 
 Things the story steps turned up. They're gaps in the editor, not in the tests, and each
-is a GitHub issue:
+is a GitHub issue.
+
+**Fixed on this branch:** #3, #4, #5, #6, #8, #9, #10, #11, #12, #13, #14, #15 and #17. The
+tests that used to work around them now check the fix (step 03's product description,
+the map's kind and the blank line; step 04's chapter move; step 05's chips, focus and
+pills; step 06's footer, spans and deleted cells; step 07's cutline and typed cells; and
+`edges/test_prose.py`). Fixing them also turned up and fixed a regression: drag markers
+reset each row's `class:` toggles, which the section form's old rebuild-on-every-apply had
+hidden. **Still open:** #7 (a new reference card's late focus, too quick for a person to
+hit) and #16 (the Source view's planned text for other forms). The compiler issues are
+open in jyurkiw/enigma_narrative (#4, #5, and #6, which is new: table spans). The list
+below is the original write-up.
 
 - **No form for `<productDescription>`** (#3). Step 03 can't write one, and nothing else in
   the editor can either.
