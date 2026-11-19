@@ -29,6 +29,28 @@ browsers, because it attaches to the app's WebView2.
   start of each run. `adventures/e2e/` has a `.gitignore` of its own, so git never sees
   it.
 
+## Writing tests
+
+The primary suite is `story/`: ordered steps (`test_01_project.py`, `test_02_new_files.py`
+and so on) that build Grand Forks one piece at a time. After a step passes, the run saves the
+project to `out/<run>/snapshots/NN`.
+
+```powershell
+uv run python tools/launch.py --build          # an app that stays open (Ctrl+C closes it)
+uv run pytest story -k 05 --attach             # run steps against it, and watch
+uv run pytest story --no-build --from-snapshot 04   # steps 05 on, in a fresh app, on step 04's files
+uv run python tools/peek.py "document.title"   # evaluate JavaScript in the live app
+```
+
+`pages/ui.py` holds the page objects, so tests read as steps (`ui.select('chapter',
+name='tollside')`, `ui.field('Title').fill(...)`, `ui.apply()`).
+
+- **Waiting for an apply:** wrap the click that makes the edit in `ui.click_applies(...)`
+  (`ui.apply()` does this). It waits for the backend to log the finished apply, then
+  checks it saved and that the Problems panel is empty. Don't use fixed waits.
+- **Checking results:** check the file on disk with `ui.xml(rel)` and `ui.one(rel, xpath)`,
+  not the Source view's text.
+
 ## The test seams (`--features e2e`, see `src-tauri/src/e2e.rs`)
 
 | Seam | In the tests |

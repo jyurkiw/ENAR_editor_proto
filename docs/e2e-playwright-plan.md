@@ -261,6 +261,22 @@ When someone adds a new edit variant without a test, the suite fails and names i
    runs. The build step needs TeX Live plus the dndbook class, which is the slow part.
    Until then the suite runs locally: `uv run --project e2e pytest e2e`.
 
+## Findings so far
+
+Things the story steps turned up. They're gaps in the editor, not in the tests:
+
+- **No form for `<productDescription>`.** Step 03 can't write one, and nothing else in the
+  editor can either.
+- **No Kind field on reference images.** The compiler's `kind="art|map"` can't be set
+  from the reference form, so the map can't be marked as a map yet.
+- **Chapters can't be reordered.** `ChapterEdit` has Add, Update and Delete only. Step 04
+  reorders sections inside a chapter instead.
+- **A leftover blank line.** Removing the skeleton's cover and adding a new one leaves
+  two blank lines after `<supplement>`.
+- **New reference cards focus their Id field one frame late.** Fast typing right after
+  "+ Add" can land in the wrong field. The test waits for the focus; a person typing
+  can't be fast enough to hit this.
+
 ## Open questions
 
 | Question | My suggestion |
