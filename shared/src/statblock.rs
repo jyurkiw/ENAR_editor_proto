@@ -847,6 +847,8 @@ const HP: &[(&str, Field, bool)] = &[("num", Field::Int, false), ("sides", Field
 pub const INLINE: &[InlineSpec] = &[
     InlineSpec { tag: "shortNounRef", label: "Short noun (the creature)", attrs: &[], text: None },
     InlineSpec { tag: "damage", label: "Damage", attrs: &[("num", Field::Int, false), ("sides", Field::Int, false), ("mod", Field::Int, false), ("stat", Field::Pick(STATS), false), ("type", Field::Pick(DAMAGE_TYPES), true)], text: None },
+    // 8 + stat + PB (proficiency: unset is on) + PB again with expertise + bonus; prints the number
+    InlineSpec { tag: "dc", label: "DC (computed)", attrs: &[("stat", Field::Pick(STATS), true), ("proficiency", Field::Pick(&["true", "false"]), false), ("expertise", Field::Bool, false), ("bonus", Field::Int, false)], text: None },
     InlineSpec { tag: "condition", label: "Condition", attrs: &[], text: Some(Field::Pick(CONDITIONS)) },
     InlineSpec { tag: "savingthrow", label: "Saving throw", attrs: &[("stat", Field::Pick(STATS), true), ("dc", Field::Text, true)], text: None },
     InlineSpec { tag: "skillcheck", label: "Skill check", attrs: &[("stat", Field::Pick(STATS), true), ("skill", Field::Pick(SKILLS), true), ("dc", Field::Int, false), ("table", Field::Bool, false)], text: None },

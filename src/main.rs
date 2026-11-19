@@ -41,6 +41,14 @@ use structure::StructurePanel;
 use viewer::Viewer;
 
 fn main() {
+    // This crate is the web UI: it runs as WebAssembly inside the app window. Built for the
+    // desktop (`cargo run` in this folder), its first browser call would panic.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        eprintln!("enigma-ui is the editor's web UI and only runs inside the app. Start the editor with:\n\n    cargo tauri dev\n");
+        std::process::exit(1);
+    }
+    #[allow(unreachable_code)]
     console_error_panic_hook::set_once();
     spelling::start();
     leptos::mount::mount_to_body(App);

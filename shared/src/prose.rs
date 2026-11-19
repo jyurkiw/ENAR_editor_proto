@@ -168,6 +168,22 @@ fn dice(t: &Tok) -> String {
     s.trim_start_matches(" + ").to_string()
 }
 
+/// A `<dc>` chip: "DC 8 + STR + PB + 1" (the stat block works out the number).
+fn dc_label(t: &Tok) -> String {
+    let mut s = format!("DC 8 + {}", t.attr("stat").to_uppercase());
+    if t.attr("expertise") == "true" {
+        s.push_str(" + 2 PB");
+    } else if t.attr("proficiency") != "false" {
+        s.push_str(" + PB");
+    }
+    match t.attr("bonus").trim() {
+        "" | "0" => {}
+        b if b.starts_with('-') => s.push_str(&format!(" − {}", &b[1..])),
+        b => s.push_str(&format!(" + {b}")),
+    }
+    s
+}
+
 /// What a non-ref tag prints, briefly, for its chip. Refs are named by the page, which
 /// knows the entries; for those this gives the id.
 pub fn label(t: &Tok) -> String {
@@ -197,6 +213,7 @@ pub fn label(t: &Tok) -> String {
                 dc => format!("DC {dc} {}{skill} check", stat_name(a("stat"))),
             }
         }
+        "dc" => dc_label(t),
         "spellAttack" => format!("{} spell attack", a("type")),
         "area" => {
             let n = ["size", "radius", "diameter", "length"].iter().map(|k| a(k)).find(|v| !v.is_empty()).unwrap_or("");
@@ -225,7 +242,7 @@ pub fn chip_kind(tag: &str) -> &'static str {
     match tag {
         "monsterRef" | "nounRef" | "spellRef" | "itemRef" | "dataRef" | "chapterRef" | "figureRef" | "monster" | "actionRef"
         | "attackRef" | "saveRef" | "speedRef" | "shortNounRef" | "formulaRef" | "choiceRef" => "ref",
-        "damage" | "healing" | "temphp" | "roll" | "savingthrow" | "skillcheck" | "spellAttack" | "area" | "speed" => "dice",
+        "damage" | "healing" | "temphp" | "roll" | "savingthrow" | "skillcheck" | "spellAttack" | "area" | "speed" | "dc" => "dice",
         "condition" | "hazard" | "rule" | "spellName" | "itemName" | "creatureName" => "term",
         _ => "other",
     }
@@ -416,6 +433,12 @@ mod tests {
         assert_eq!(l("<damage num=\"1\" sides=\"8\" stat=\"str\" mod=\"-1\" type=\"slashing\"/>"), "1d8 + STR − 1 Slashing");
         assert_eq!(l("<area name=\"sphere\" radius=\"20\"/>"), "20-ft Sphere");
         assert_eq!(l("<condition>prone</condition>"), "Prone");
+        assert_eq!(l("<dc stat=\"str\"/>"), "DC 8 + STR + PB");
+        assert_eq!(l("<dc stat=\"dex\" expertise=\"true\" bonus=\"-1\"/>"), "DC 8 + DEX + 2 PB − 1");
+        assert_eq!(l("<dc stat=\"con\" proficiency=\"false\" bonus=\"2\"/>"), "DC 8 + CON + 2");
+        assert_eq!(chip_kind("dc"), "dice");
+        let dc = crate::statblock::inline_spec("dc").unwrap();
+        assert_eq!(crate::statblock::inline_xml_with(dc, &[("stat".into(), "str".into()), ("proficiency".into(), String::new())], ""), "<dc stat=\"str\"/>");
     }
 
     #[test]

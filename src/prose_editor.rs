@@ -188,6 +188,18 @@ fn document() -> Option<web_sys::Document> {
     web_sys::window()?.document()
 }
 
+/// Put the caret just after `node` (a new chip or word), so typing carries on from there.
+fn caret_after(node: &web_sys::Node) {
+    let (Some(d), Some(sel)) = (document(), web_sys::window().and_then(|w| w.get_selection().ok().flatten())) else { return };
+    let Ok(r) = d.create_range() else { return };
+    if r.set_start_after(node).is_err() {
+        return;
+    }
+    r.collapse_with_to_start(true);
+    let _ = sel.remove_all_ranges();
+    let _ = sel.add_range(&r);
+}
+
 /// The selection, if it's inside `el`.
 fn range_in(el: &web_sys::HtmlElement) -> Option<web_sys::Range> {
     let sel = web_sys::window()?.get_selection().ok()??;
@@ -456,8 +468,26 @@ fn choices(env: &ProseEnv, lib: &[LibEntry], q: &str, hint: &str) -> Vec<Choice>
     for s in pal.tags() {
         push(s.label.to_string(), format!("<{}>", s.tag).replace(['<', '>'], ""), "Other tags", 0, "", Act::NewTag(s.tag));
     }
-    out.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase())));
-    out.truncate(40);
+    // Best first; on a tie, keep each group together, in the order they were added (so an
+    // empty search lists this stat block, then entries, then the library, then the tags).
+    let mut groups: Vec<&'static str> = Vec::new();
+    for c in &out {
+        if !groups.contains(&c.group) {
+            groups.push(c.group);
+        }
+    }
+    let rank = |g: &str| groups.iter().position(|x| *x == g).unwrap_or(usize::MAX);
+    out.sort_by(|a, b| {
+        b.score.cmp(&a.score).then_with(|| rank(a.group).cmp(&rank(b.group))).then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+    });
+    // Cap the refs and library entries, not the tags: the tags are a short fixed list, and
+    // with an empty search the library would otherwise push every one of them off the end.
+    let mut refs = 0;
+    out.retain(|c| {
+        let tag = matches!(c.act, Act::NewTag(_));
+        refs += usize::from(!tag);
+        tag || refs <= 40
+    });
     out
 }
 
@@ -661,8 +691,11 @@ pub fn ChipEditor(
         }
         saved.set_value(None);
         panel.set(Panel::None);
-        emit();
+        // Focus and place the caret before emitting: focusing alone puts the caret at the
+        // start of the box, and the redraw effect leaves a focused box alone.
         let _ = div.focus();
+        caret_after(&span);
+        emit();
     };
     let open_gen = move || {
         let Some(div) = el.get_untracked() else { return };
@@ -698,9 +731,10 @@ pub fn ChipEditor(
             offer.set(Some((format!("\u{201c}{}\u{201d}", c.label), vec![cand(&kind, &id, &form, &c.label, &c.label, x)])));
         }
         Act::NewTag(tag) => {
-            let sel = query.get_untracked();
+            // The search words (or selection) become the tag's text, if it takes text.
+            let takes_text = env.palette.spec(tag).is_some_and(|s| s.text.is_some());
             tag_attrs.set(Vec::new());
-            tag_text.set(sel);
+            tag_text.set(if takes_text { query.get_untracked() } else { String::new() });
             panel.set(Panel::Tag { tag: tag.to_string(), attrs: Vec::new(), text: String::new(), chip: None });
             focus_panel();
         }
@@ -787,8 +821,13 @@ pub fn ChipEditor(
             MenuItem::Suggest(w) => {
                 if let (Some(r), Some(d)) = (saved.get_value(), document()) {
                     let _ = r.delete_contents();
-                    let _ = r.insert_node(&d.create_text_node(&w));
+                    let word = d.create_text_node(&w);
+                    let _ = r.insert_node(&word);
                     saved.set_value(None);
+                    if let Some(div) = el.get_untracked() {
+                        let _ = div.focus();
+                    }
+                    caret_after(&word);
                     emit();
                 }
             }
@@ -913,7 +952,13 @@ pub fn ChipEditor(
                 .collect(),
             None => attrs,
         };
-        let xml = prose::tag_xml(&tag, &order, &tag_text.get_untracked(), has_text);
+        // A tag with no content (<dc/>, <damage/>) never takes text, even when the search
+        // words were carried in as it opened; only a tag we have no spec for keeps its text.
+        let text = match env.palette.spec(&tag) {
+            Some(_) if !has_text => String::new(),
+            _ => tag_text.get_untracked(),
+        };
+        let xml = prose::tag_xml(&tag, &order, &text, has_text);
         match chip {
             None => insert_xml(xml),
             Some(n) => {
