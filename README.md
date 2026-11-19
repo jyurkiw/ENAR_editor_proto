@@ -46,8 +46,14 @@ with dev builds.
   naming `supplement-template-schema.xsd`, then it's XSD-validated with lxml via
   `uv run --project <compiler>`. The Python env lives in the app cache folder
   (`UV_PROJECT_ENVIRONMENT`), so the compiler's own `.venv` is untouched. Failures aren't opened.
-- **Layout**: file tabs on top; vertical tabs on the left for File system / File structure;
-  the main area shows the selected element's source, re-indented and highlighted (read-only).
+- **Layout**: file tabs on top; vertical tabs on the left for File system / File structure /
+  Preview; the main area shows the selected element's source, re-indented and highlighted
+  (read-only).
+- **Preview** (monster files): the stat block the selection is in (else the file's first), as
+  the book prints it, one column wide. The compiler builds it (`python -m encompile.preview`,
+  through the same uv environment as the validator), pdflatex sets it, and it's cropped to the
+  block. While the tab is showing, every applied change prints it again; the last picture stays
+  up, faded, until the new one is ready. Needs pdflatex and the dndbook class.
 
 ## Layout
 
