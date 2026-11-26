@@ -299,7 +299,15 @@ fn cover_splices(source: &str, nodes: &[StructNode], m: &CoverModel) -> Result<V
     let cover = &nodes[ci];
 
     if !m.present {
-        out.push(edit::remove_element(source, cover));
+        let mut s = edit::remove_element(source, cover);
+        // A cover is followed by a blank line (a new one is added that way): it goes too, so
+        // removing a cover and adding one again leaves the layout as it was.
+        let rest = &source[s.end..];
+        let pad = rest.len() - rest.trim_start_matches([' ', '\t', '\r']).len();
+        if s.start > 0 && source[..s.start].ends_with('\n') && rest[pad..].starts_with('\n') {
+            s.end += pad + 1;
+        }
+        out.push(s);
         return Ok(out);
     }
 
@@ -393,6 +401,14 @@ mod contents_tests {
     use super::*;
 
     const SRC: &str = "<supplement type=\"rules\">\n    <cover>\n        <headerTitle>T</headerTitle>\n    </cover>\n\n    <chapter name=\"a\"/>\n</supplement>\n";
+
+    #[test]
+    fn remove_and_add_again_keeps_the_layout() {
+        let gone = plan(SRC, &CoverModel::default()).unwrap();
+        assert_eq!(gone, "<supplement type=\"rules\">\n    <chapter name=\"a\"/>\n</supplement>\n");
+        let back = plan(&gone, &read(SRC).unwrap()).unwrap();
+        assert_eq!(back, SRC);
+    }
 
     #[test]
     fn add_and_remove_the_contents_logo() {

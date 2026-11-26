@@ -123,6 +123,28 @@ pub fn ChapterForm(tab: DocTab, name: String) -> impl IntoView {
         crate::dialogs::ask(msg, move || apply(tab, Change::Chapter { edit: ChapterEdit::Delete { name: n } }));
     };
 
+    // The file's chapters in order, and this one's place among them.
+    let order = move || {
+        let d = tab.doc();
+        d.nodes.first().map(|r| r.children.iter().filter(|c| d.nodes[**c].tag == "chapter")
+            .filter_map(|c| shared::edit::start_tag(&d.source, d.nodes[*c].start).and_then(|t| t.value("name"))).collect::<Vec<String>>())
+            .unwrap_or_default()
+    };
+    let pos = move || order().iter().position(|n| *n == name.get_value());
+    // Up: before the one above. Down: before the one after the next, or last.
+    let move_by = move |step: i32| {
+        let list = order();
+        let Some(p) = list.iter().position(|n| *n == name.get_value()) else { return };
+        let before = if step < 0 {
+            if p == 0 { return }
+            Some(list[p - 1].clone())
+        } else {
+            if p + 1 >= list.len() { return }
+            list.get(p + 2).cloned()
+        };
+        apply(tab, Change::Chapter { edit: ChapterEdit::Move { name: name.get_value(), before } });
+    };
+
     // Opening a child: the file's child at that position (only for children already in the file).
     let open_child = move |orig: usize| {
         let d = tab.doc_untracked();
@@ -322,6 +344,10 @@ pub fn ChapterForm(tab: DocTab, name: String) -> impl IntoView {
 
                         <div class="form-actions">
                             <button class="danger" on:click=delete disabled=busy>"Delete chapter"</button>
+                            <button title="Move the chapter up (its <ch> follows)" disabled=move || busy() || pos().is_none_or(|p| p == 0)
+                                on:click=move |_| move_by(-1)>"↑ Move up"</button>
+                            <button title="Move the chapter down (its <ch> follows)" disabled=move || busy() || pos().is_none_or(|p| p + 1 >= order().len())
+                                on:click=move |_| move_by(1)>"↓ Move down"</button>
                             <span class="spacer"></span>
                             {move || form.dirty().then(|| view! { <span class="dirty-note">"Unapplied changes"</span> })}
                             <button on:click=revert disabled=move || !form.dirty() || busy()>"Revert"</button>

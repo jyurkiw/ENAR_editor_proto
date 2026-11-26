@@ -322,6 +322,40 @@ pub fn move_element(
     Ok(vec![Splice { start: from, end: to, text: String::new() }, Splice::insert(at, text)])
 }
 
+/// Moves a block-level element that sits on lines of its own with a blank line after it
+/// (a chapter), blank line and all: before `before`, or after `last` when `before` is
+/// None, so the blank lines between blocks stay one each.
+pub fn move_block(source: &str, node: &StructNode, before: Option<&StructNode>, last: &StructNode) -> Result<Vec<Splice>, String> {
+    let lines = |n: &StructNode| -> Result<(usize, usize), String> {
+        if !blank_before(source, n.start) {
+            return Err("the element doesn't start its line".into());
+        }
+        Ok((line_start(source, n.start), line_end_after(source, n.end).ok_or("something follows the element on its line")?))
+    };
+    // Past one blank line after the block.
+    let with_blank = |end: usize| {
+        let rest = &source[end..];
+        let pad = rest.len() - rest.trim_start_matches([' ', '\t', '\r']).len();
+        if rest[pad..].starts_with('\n') { end + pad + 1 } else { end }
+    };
+    let (from, end) = lines(node)?;
+    let to = with_blank(end);
+    let body = &source[from..end];
+    let (at, text) = match before {
+        Some(b) => (lines(b)?.0, format!("{body}\n")),
+        None => {
+            if last.start == node.start {
+                return Ok(Vec::new());
+            }
+            (lines(last)?.1, format!("\n{body}"))
+        }
+    };
+    if at > from && at < to {
+        return Err("can't move an element into itself".into());
+    }
+    Ok(vec![Splice { start: from, end: to, text: String::new() }, Splice::insert(at, text)])
+}
+
 /// Where a new child goes.
 pub enum Anchor<'a> {
     /// After this sibling (and its same-line comment).

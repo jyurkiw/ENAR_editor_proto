@@ -1,0 +1,44 @@
+<magicItem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../schemas/magic-item-template-schema.xsd" id="ferrymans-lantern">
+  <name>Ferryman's Lantern</name>
+  <type>wondrous-item</type>
+  <subtypes/>
+  <rarities>
+    <rarity>rare</rarity>
+    <rarity note="when lit on the river">very-rare</rarity>
+  </rarities>
+  <attunement required="true">
+    <attunementRequirements>
+      <attunementRequirement>a ferryman</attunementRequirement>
+    </attunementRequirements>
+  </attunement>
+  <description>
+    <p>While lit, the lantern shows the safe line across any river. It burns for <dataRef ref="burnHours" value="value"/> hours on one filling of oil.</p>
+    <table>
+      <header>
+        <th>d4</th>
+        <th>The flame shows</th>
+      </header>
+      <tableBody>
+        <tr>
+          <td>1</td>
+          <td>A sandbar</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>A snag</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>A forkjaw</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Nothing at all</td>
+        </tr>
+      </tableBody>
+    </table>
+  </description>
+  <reference>
+    <data id="burnHours" value="8"/>
+  </reference>
+</magicItem>

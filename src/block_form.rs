@@ -62,6 +62,7 @@ fn other_blocks(at: &Container) -> Vec<(&'static str, &'static str)> {
             v
         }
         Container::Sidebar { .. } => vec![("list", "List"), ("table", "Table")],
+        Container::Description => vec![("list", "List")],
     }
 }
 
@@ -153,7 +154,7 @@ fn HeaderForm(tab: DocTab, at: StoredValue<Container>, base: Memo<Option<Header>
     };
     view! {
         <div node_ref=el class="block-header" class:dirty=dirty
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { do_apply() }
             }>
@@ -308,12 +309,12 @@ fn BlockRow(
     };
 
     view! {
-        <div node_ref=el class=move || format!("body-block {}", marker())
+        <div node_ref=el class="body-block" class:drop-before=move || marker() == "drop-before" class:drop-after=move || marker() == "drop-after"
             class:para=is_p class:dirty=dirty class:failed=failed
             class:dragging=move || drag.from.get() == Some(child())
             on:dragover=on_dragover on:drop=on_drop
             // A row being removed while focused still gets focusout, after its signals are gone.
-            on:focusout=move |ev: FocusEvent| if is_p.try_get_untracked().unwrap_or(false) && !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if is_p.try_get_untracked().unwrap_or(false) && !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if !is_p.get_untracked() { return }
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
@@ -404,6 +405,7 @@ fn BlockRow(
 #[component]
 pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
     let is_sidebar = matches!(at, Container::Sidebar { .. });
+    let is_desc = matches!(at, Container::Description);
     let at = StoredValue::new(at);
     let data = Memo::new(move |_| {
         let d = tab.doc();
@@ -452,15 +454,20 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
         apply(tab, Change::Block { edit: BlockEdit::AddP { at: at.get_value(), after: None } });
     };
 
+    // Only the section's presence rebuilds the frame: an apply must leave the rows (their
+    // open panels, their focus) alone.
+    let exists = Memo::new(move |_| data.with(|d| d.is_some()));
     view! {
-        {move || match data.get() {
-            None => view! { <div class="empty"><p>"This section isn't in the file any more."</p></div> }.into_any(),
-            Some(_) => view! {
+        {move || match exists.get() {
+            false => view! { <div class="empty"><p>"This section isn't in the file any more."</p></div> }.into_any(),
+            true => view! {
                 <div class="block-editor" class:sidebar=is_sidebar>
                     <div class="block-kind">
-                        <span class="block-kind-name">{if is_sidebar { "Sidebar" } else { "Section" }}</span>
+                        <span class="block-kind-name">{if is_sidebar { "Sidebar" } else if is_desc { "Product description" } else { "Section" }}</span>
                         <span class="hint">{if is_sidebar {
                             "A boxed aside, printed where a <sidebarLink> places it. Holds paragraphs, tables and lists."
+                        } else if is_desc {
+                            "The store page's blurb: paragraphs and lists. The compiler copies it into the datasheet; it isn't printed in the book."
                         } else {
                             "Prose in the chapter's flow; its title prints as a heading."
                         }}</span>
@@ -469,7 +476,7 @@ pub fn BlockForm(tab: DocTab, at: Container) -> impl IntoView {
                             view! { <span class="uses" class:unused=n == 0>{if n == 0 { "not placed by any <sidebarLink>".to_string() } else { format!("placed by {n} <sidebarLink>") }}</span> }
                         })}
                     </div>
-                    <HeaderForm tab at base=header links/>
+                    {(!is_desc).then(|| view! { <HeaderForm tab at base=header links/> })}
                     <div class="block-body">
                         <div class="body-tools">
                             <span class="hint">"Type text; refs and tags show as chips. Click a chip to edit it; ＋ or Ctrl+K inserts one; Ctrl+B and Ctrl+I bold and italicize. Ctrl+Enter applies."</span>

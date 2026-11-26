@@ -1,0 +1,20 @@
+<!-- The legal notice the Dungeon Masters Guild Community Content Agreement requires,
+     from dmsguild-license-boilerplate.xml at the repository root. The year and the
+     copyright holder are blanks the supplement fills:
+
+         <license file="dmsguild-license.xml" date="2026" ownedBy="Enigma Narrative Studios"/>
+
+     Before publishing, check the wording against the DMs Guild site; the platform
+     controls it. Then record when you did in @download_date. -->
+<license xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../schemas/license-template-schema.xsd" name="Dungeon Masters Guild Community Content Agreement notice" download_date="2026-11-19">
+  <p>
+        DUNGEONS &amp; DRAGONS, D&amp;D, Wizards of the Coast, Forgotten Realms, Ravenloft, Eberron, the dragon ampersand, Ravnica and all other Wizards of the Coast product names, and their respective logos are trademarks of Wizards of the Coast in the USA and other countries.
+    </p>
+  <p>
+        This work contains material that is copyright Wizards of the Coast and/or other authors. Such material is used with permission under the Community Content Agreement for Dungeon Masters Guild.
+    </p>
+  <p>
+        All other original material in this work is copyright <date/> by <ownedBy/> and published under the Community Content Agreement for Dungeon Masters Guild.
+    </p>
+  <p>This copy belongs to the Grand Forks test project.</p>
+</license>

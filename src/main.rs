@@ -60,6 +60,10 @@ fn main() {
 fn App() -> impl IntoView {
     let app = AppCtx::new();
     provide_context(app);
+    // Notice open files changed by something else: when the window comes back, and every
+    // few seconds while it's open.
+    let _ = window_event_listener(leptos::ev::focus, move |_| app.check_disk());
+    set_interval(move || app.check_disk(), std::time::Duration::from_secs(2));
     // Reopen the last project.
     spawn_local(async move {
         if let Some(p) = api::last_project().await {
@@ -164,13 +168,15 @@ fn FileTabs() -> impl IntoView {
                             class:active=move || app.active.get() == Some(id)
                             title=path
                             on:click=move |_| app.active.set(Some(id))
-                            on:auxclick=move |ev| if ev.button() == 1 { app.close_tab(id) }
+                            on:auxclick=move |ev| if ev.button() == 1 { app.close_tab_asking(id) }
                         >
                             <span class="tab-name">{name}</span>
                             <span class="tab-folder">{folder}</span>
-                            <button class="close" title="Close" on:click=move |ev| {
+                            // mousedown keeps the focus where it is: taken out of a paragraph,
+                            // it would apply it before the question.
+                            <button class="close" title="Close" on:mousedown=move |ev: leptos::ev::MouseEvent| ev.prevent_default() on:click=move |ev| {
                                 ev.stop_propagation();
-                                app.close_tab(id);
+                                app.close_tab_asking(id);
                             }>"×"</button>
                         </div>
                     }

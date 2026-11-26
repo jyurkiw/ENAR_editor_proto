@@ -354,7 +354,9 @@ pub fn AddParts(tab: DocTab) -> impl IntoView {
     let missing = Memo::new(move |_| {
         let d = tab.doc();
         let root = d.nodes.first();
-        PARTS.iter().filter(|(t, _)| root.is_some_and(|r| !r.children.iter().any(|c| d.nodes[*c].tag == *t))).copied().collect::<Vec<_>>()
+        // The product description is offered too, but edited in the section editor.
+        PARTS.iter().chain(&[("productDescription", "Product description")])
+            .filter(|(t, _)| root.is_some_and(|r| !r.children.iter().any(|c| d.nodes[*c].tag == *t))).copied().collect::<Vec<_>>()
     });
     let busy = move || tab.applying.get();
     view! {

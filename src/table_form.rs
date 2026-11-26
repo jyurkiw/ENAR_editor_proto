@@ -58,7 +58,7 @@ fn InfoCard(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>
     let el = NodeRef::<html::Div>::new();
     view! {
         <div node_ref=el class="table-card" class:dirty=dirty
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { do_apply() }
             }>
@@ -161,7 +161,7 @@ fn HeaderRow(tab: DocTab, at: StoredValue<TableAt>, col: usize, view: Memo<Optio
 
     view! {
         <div node_ref=el class="th-row" class:dirty=dirty class:failed=failed
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>
@@ -197,12 +197,34 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
     let n_cells = Memo::new(move |_| {
         view.with(|v| v.as_ref().and_then(|v| (if part == Part::Body { &v.body } else { &v.footer }).get(row).map(|r| r.cells.len())).unwrap_or(0))
     });
+    // Named by the column it starts in (cells before it may span several).
     let label = move || {
-        view.with(|v| v.as_ref().and_then(|v| v.headers.get(col).cloned()))
-            .map(|h| if h.trim().is_empty() { format!("(column {})", col + 1) } else { h })
-            .unwrap_or_else(|| format!("(no header) {}", col + 1))
+        view.with(|v| {
+            let v = v.as_ref()?;
+            let c = start_col(v, part, row, col);
+            Some(match v.headers.get(c) {
+                Some(h) if h.trim().is_empty() => format!("(column {})", c + 1),
+                Some(h) => h.clone(),
+                None => format!("(no header) {}", c + 1),
+            })
+        })
+        .unwrap_or_else(|| format!("(no header) {}", col + 1))
     };
-    let no_header = move || view.with(|v| v.as_ref().is_some_and(|v| v.has_header && col >= v.headers.len()));
+    let no_header = move || view.with(|v| v.as_ref().is_some_and(|v| v.has_header && start_col(v, part, row, col) >= v.headers.len()));
+    // A cell that can go: one past the headers, or the row's last when its spans make the
+    // row wider than the headers.
+    let spare = move || {
+        view.with(|v| {
+            let Some(v) = v.as_ref().filter(|v| v.has_header) else { return false };
+            let rows = if part == Part::Body { &v.body } else { &v.footer };
+            let Some(r) = rows.get(row) else { return false };
+            let width = row_width(v, part, row);
+            r.cells.len() > 1 && col < r.cells.len() && (start_col(v, part, row, col) >= v.headers.len() || (col + 1 == r.cells.len() && width > v.headers.len()))
+        })
+    };
+    let delete_cell = move |_: MouseEvent| {
+        apply(tab, Change::Table { edit: TableEdit::DeleteCell { at: at.get_value(), part, row, col } });
+    };
     let base = move || cell.get().map(|c| c.text).unwrap_or_default();
     let key = move || (at.get_value(), part, row, col);
     let draft = move || {
@@ -271,7 +293,7 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
 
     view! {
         <div node_ref=el class="cell" class:dirty=dirty class:failed=failed class:extra=no_header
-            on:focusout=move |ev: FocusEvent| if present.get_untracked() && !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if present.get_untracked() && !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if !present.get_untracked() { return }
                 if ev.key() == "Escape" { revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
@@ -283,6 +305,9 @@ fn CellField(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>
                     <button class="small" title="How many columns or rows this cell covers" disabled=busy on:click=move |_| open_spans()>"Spans"</button>
                 })}
                 <span class="spacer"></span>
+                {move || (present.get() && spare()).then(|| view! {
+                    <button class="icon-btn danger" title="Delete this cell" disabled=busy on:click=delete_cell>"✕"</button>
+                })}
                 {move || failed().then(|| view! { <span class="state-badge bad">"refused"</span> })}
                 {move || (present.get() && dirty()).then(|| view! {
                     <button class="small" disabled=busy on:click=move |_| revert()>"Revert"</button>
@@ -324,11 +349,30 @@ fn cell_count(v: &TableView, part: Part, row: usize) -> usize {
     (if part == Part::Body { &v.body } else { &v.footer }).get(row).map(|r| r.cells.len()).unwrap_or(0)
 }
 
+/// How many columns the row covers, spans counted.
+fn row_width(v: &TableView, part: Part, row: usize) -> usize {
+    table::row_widths(if part == Part::Body { &v.body } else { &v.footer }).get(row).copied().unwrap_or(0)
+}
+
+/// The column cell `col` of the row starts in: the cells before it, with their colspans.
+fn start_col(v: &TableView, part: Part, row: usize, col: usize) -> usize {
+    let n = |s: &str| s.trim().parse::<usize>().unwrap_or(1).max(1);
+    (if part == Part::Body { &v.body } else { &v.footer }).get(row).map(|r| r.cells.iter().take(col).map(|c| n(&c.colspan)).sum()).unwrap_or(col)
+}
+
 #[component]
 fn RowCard(tab: DocTab, at: StoredValue<TableAt>, view: Memo<Option<TableView>>, part: Part, row: usize, count: Memo<usize>) -> impl IntoView {
     let busy = move || tab.applying.get();
-    let cols = Memo::new(move |_| view.with(|v| v.as_ref().map(|v| cell_count(v, part, row).max(v.headers.len())).unwrap_or(0)));
-    let mismatch = move || view.with(|v| v.as_ref().is_some_and(|v| v.has_header && cell_count(v, part, row) != v.headers.len()));
+    // A field per cell, and an empty slot per column the row is short of.
+    let cols = Memo::new(move |_| {
+        view.with(|v| {
+            v.as_ref().map(|v| {
+                let n = cell_count(v, part, row);
+                if v.has_header { n + v.headers.len().saturating_sub(row_width(v, part, row)) } else { n.max(v.headers.len()) }
+            }).unwrap_or(0)
+        })
+    });
+    let mismatch = move || view.with(|v| v.as_ref().is_some_and(|v| v.has_header && row_width(v, part, row) != v.headers.len()));
     let label = if part == Part::Body { format!("Row {}", row + 1) } else { format!("Footer row {}", row + 1) };
     let only_body = move || part == Part::Body && count.get() == 1;
     let delete = move |_: MouseEvent| {
@@ -440,7 +484,14 @@ pub fn TableForm(tab: DocTab, at: TableAt) -> impl IntoView {
                 <span class="hint">"One field per cell, labelled with its column's header. Cells follow their header when headers move."</span>
             </div>
             <RowsPart tab at view part=Part::Body/>
-            <Show when=move || has_footer.get()>
+            <Show when=move || has_footer.get() fallback=move || view! {
+                <div class="th-tools">
+                    <button class="small" disabled=busy on:click=move |_: MouseEvent| apply(tab, Change::Table { edit: TableEdit::AddRow { at: at.get_value(), part: Part::Footer, after: None } })>
+                        "+ Add a footer row"
+                    </button>
+                    <span class="hint">"Creates the <footer>: rows printed under the body, for totals or notes."</span>
+                </div>
+            }>
                 <div class="table-card-subtitle">{move || format!("Footer rows ({})", n_footer.get())}</div>
                 <RowsPart tab at view part=Part::Footer/>
             </Show>

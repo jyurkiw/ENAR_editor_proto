@@ -360,7 +360,7 @@ fn ParaRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, paras: Memo<Vec<Strin
     };
     view! {
         <div node_ref=el class="body-block para" class:dirty=move || d.dirty() class:failed=move || d.failed()
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { d.revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>
@@ -449,7 +449,7 @@ fn PartBar(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>, f
     let after = Signal::derive(move || Some(child));
     view! {
         <div node_ref=el class="table-card part-bar" class:dirty=move || d.dirty() class:failed=move || d.failed()
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { d.revert() } else if ev.key() == "Enter" { do_apply() }
             }>
@@ -563,13 +563,14 @@ fn ImageForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
                 {field!("Title", name, "(none)", "name: the piece, for <imageCredits/>")}
                 {field!("Artist", credit, "(none)", "credit: the artist, for <imageCredits/>")}
             </div>
-            <label class="field">
+            // A div, not a label: a click in a label goes to its first control (the box's ＋).
+            <div class="field">
                 <span class="field-label">"Cutline"</span>
                 <ChipEditor value=Signal::derive(move || m().cutline) set=Callback::new(move |s: String| d.change(|x: &mut ImageModel| x.cutline = s))
                     placeholder="(none) The caption under the image"/>
                 {move || bad().map(|e| view! { <span class="hint bad">"Not well-formed XML yet: " {e}</span> })}
                 <span class="hint">"<cutline>: the caption, in italics. Empty removes it. Ctrl+Enter applies."</span>
-            </label>
+            </div>
             {bar(d, busy, do_apply)}
         </div>
     }
@@ -598,7 +599,11 @@ fn TableForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
             edit(tab, FamilyEdit::Table { at: at.get_value(), heads, rows });
         }
     };
-    let cols = move || g().heads.len();
+    // Only the grid's shape rebuilds its cells: a cell's own edit must leave its editor (and
+    // its caret) alone.
+    let n_cols = Memo::new(move |_| d.model::<Grid>().heads.len());
+    let n_rows = Memo::new(move |_| d.model::<Grid>().rows.len());
+    let cols = move || n_cols.get();
     let add_row = move |_| {
         d.change(|x: &mut Grid| {
             let n = x.heads.len().max(1);
@@ -653,7 +658,7 @@ fn TableForm(tab: DocTab, at: StoredValue<PartAt>, view: Memo<Option<PartView>>)
                 </thead>
                 <tbody>
                     {move || {
-                        let rows = g().rows.len();
+                        let rows = n_rows.get();
                         (0..rows).map(|r| view! {
                             <tr>
                                 {(0..cols()).map(|c| view! {
@@ -711,7 +716,7 @@ fn EffectRow(tab: DocTab, at: StoredValue<PartAt>, n: usize, effects: Memo<Vec<E
     };
     view! {
         <div node_ref=el class="body-block para effect-row" class:dirty=move || d.dirty() class:failed=move || d.failed()
-            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { do_apply() }
+            on:focusout=move |ev: FocusEvent| if !focus_stays(&ev, &el) { crate::apply::if_still_shown(el, move || do_apply()) }
             on:keydown=move |ev: KeyboardEvent| {
                 if ev.key() == "Escape" { d.revert() } else if ev.key() == "Enter" && ev.ctrl_key() { ev.prevent_default(); do_apply() }
             }>

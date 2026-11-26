@@ -1,0 +1,3 @@
+# Words the Enigma editor's spellchecker accepts in this project, one per line.
+# Added from a prose box's right-click menu ("Add to project words"); edit freely.
+Tollwarden
