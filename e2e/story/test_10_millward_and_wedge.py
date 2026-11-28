@@ -32,7 +32,7 @@ def kids(ui, name):
 
 def add_below(ui, row, tag):
     ui.applies(lambda: row.locator('select.add-menu').select_option(tag))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', tag)
+    expect(ui.current()).to_have_attribute('data-tag', tag)
 
 
 def back(ui):

@@ -81,10 +81,10 @@ def test_the_toll_is_a_variable(ui):
 
 def test_the_toll_table(ui):
     ui.applies(lambda: para(ui).locator('select.add-menu').select_option('tableLink'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'tableLink')
+    expect(ui.current()).to_have_attribute('data-tag', 'tableLink')
     expect(ui.field('Table', scope=ui.body)).to_have_value('new-table')
     ui.body.get_by_role('button', name='Open the table').click()
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'table')
+    expect(ui.current()).to_have_attribute('data-tag', 'table')
 
     info = ui.body.locator('.table-card').first
     ui.field('Id *', scope=info).fill('toll-rates')
@@ -181,7 +181,7 @@ def test_a_sidebar(ui):
     Prose(ui, row).type('The Copper Kettle is where the toll disputes end up.')
     ui.apply(row)
     ui.applies(lambda: row.locator('select.add-menu').select_option('sidebarLink'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'sidebarLink')
+    expect(ui.current()).to_have_attribute('data-tag', 'sidebarLink')
     ui.select('sidebar')
     expect(ui.body.locator('.block-kind-name')).to_have_text('Sidebar')
     expect(ui.body.locator('.uses')).to_have_text('placed by 1 <sidebarLink>')
@@ -205,7 +205,7 @@ def test_the_wardens_dialog(ui):
     Prose(ui, row).type('The Toll Warden lives above the gatehouse.')
     ui.apply(row)
     ui.applies(lambda: row.locator('select.add-menu').select_option('dialog'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'dialog')
+    expect(ui.current()).to_have_attribute('data-tag', 'dialog')
     speaker = ui.field('Speaker', scope=ui.body)
     speaker.fill('Toll Warden')
     ui.applies(lambda: speaker.press('Enter'))
@@ -249,7 +249,7 @@ def test_the_bridge_picture(ui):
     ui.select('section', name='toll-bridge')
     last = ui.body.locator('.body-block').last
     ui.applies(lambda: last.locator('select.add-menu').select_option('image'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'image')
+    expect(ui.current()).to_have_attribute('data-tag', 'image')
     ui.field('Image', scope=ui.body).select_option('img-toll-bridge')
     ui.field('Placement', scope=ui.body).select_option('top')
     ui.apply(ui.body)

@@ -153,7 +153,7 @@
     <chapterTitle>Creatures of the Forks</chapterTitle>
     <section name="creatures">
       <title>Creatures</title>
-      <p>The <monsterRef ref="toll-warden" value="name"/> keeps order; a <monsterRef ref="bandit" value="name"/> or two works the road; the <monsterRef ref="pike-spirit" value="name"/> haunts the weir.</p>
+      <p>The <monsterRef ref="toll-warden" value="name"/> keeps order; a <monsterRef ref="bandit" value="name"/> or two works the road; the <monsterRef ref="pike-spirit" value="name"/> haunts the weir. The warden on duty is usually <monster ref="toll-warden" display="Brisk"/>, who never takes a bribe.</p>
       <monsterStatblock ref="toll-warden"/>
       <monsterStatblock ref="bandit"/>
     </section>

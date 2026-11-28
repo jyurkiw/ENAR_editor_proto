@@ -88,9 +88,15 @@ class UI:
             rows = rows.and_(self.page.locator(f'[data-label$="· {css_str(name)}"]'))
         row = rows.nth(nth)
         expect(row).to_be_visible()
-        if 'selected' not in (row.get_attribute('class') or ''):
+        # Class names, not substrings: a row holding a hidden selection is "holds-selected".
+        if 'selected' not in (row.get_attribute('class') or '').split():
             row.click()
-        expect(row).to_have_class(re.compile(r'\bselected\b'))
+        expect(row).to_have_class(re.compile(r'(^|\s)selected(\s|$)'))
+
+    def current(self) -> Locator:
+        """The selected element's breadcrumb: its data-tag names exactly what's selected,
+        even an element the tree doesn't list (a list, a paragraph)."""
+        return self.page.locator('.crumbs .crumb.current')
 
     # ----- the main area -----
 

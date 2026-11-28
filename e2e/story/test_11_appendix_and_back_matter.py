@@ -115,6 +115,14 @@ def test_appendix_stat_blocks(ui):
     assert mons['toll-warden'].get('file') == '../townsfolk.xml'
     assert mons['bandit'].get('file', '').endswith('.xml'), dict(mons['bandit'].attrib)    # the SRD's file
 
+    # An inline monster from Ctrl+K: "Brisk (Toll Warden, CR …)", typed on through.
+    p.type(' The warden on duty is usually ')
+    p.new_tag('inline', 'Inline monster', fields={'ref': 'toll-warden', 'display': 'Brisk'})
+    ui.page.keyboard.type(', who never takes a bribe.')
+    ui.apply(row)
+    p_xml = xml_of(sec(ui, 'creatures').find('p'))
+    assert 'is usually <monster ref="toll-warden" display="Brisk"/>, who never takes a bribe.' in p_xml, p_xml
+
     for mid in ['toll-warden', 'bandit']:
         ui.applies(lambda: ui.body.locator('.body-block').last.locator('select.add-menu').select_option('monsterStatblock'))
         ui.field('Monster', scope=ui.body).select_option(mid)
