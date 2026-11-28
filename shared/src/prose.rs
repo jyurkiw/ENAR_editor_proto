@@ -7,7 +7,7 @@ use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 
 use crate::edit::{escape_attr, escape_text};
-use crate::statblock::{Field, InlineSpec, AREAS, AREA_UNITS, CONDITIONS, HAZARDS, SKILLS, STATS};
+use crate::statblock::{Field, InlineSpec, AREAS, AREA_UNITS, CONDITIONS, CRS, HAZARDS, SKILLS, STATS};
 
 /// One piece of prose.
 #[derive(Clone, Debug, PartialEq)]
@@ -310,7 +310,6 @@ pub const REFS: &[InlineSpec] = &[
     InlineSpec { tag: "dataRef", label: "Data ref", attrs: &[("ref", Field::Ref(&["data"]), true), ("value", Field::Pick(&["value", "body"]), true), EMPH], text: None },
     InlineSpec { tag: "chapterRef", label: "Chapter ref", attrs: &[("name", Field::Ref(&["chapter"]), true), EMPH], text: None },
     InlineSpec { tag: "figureRef", label: "Figure ref", attrs: &[("ref", Field::Ref(&["figure"]), true), EMPH], text: None },
-    InlineSpec { tag: "monster", label: "Inline monster", attrs: &[("ref", Field::Ref(&["monster"]), false), ("name", Field::Text, false), ("cr", Field::Text, false), ("src", Field::Text, false), ("display", Field::Text, false), EMPH], text: None },
 ];
 
 /// A license notice's blanks, filled from the supplement's `<license date ownedBy>`.
@@ -321,6 +320,15 @@ pub const LICENSE: &[InlineSpec] = &[
 
 /// A supplement paragraph's tags besides its entry refs.
 pub const SUPPLEMENT: &[InlineSpec] = &[
+    // "Krugga Redhide (Gnoll Warrior, CR 1/2, 100 XP, 5.2.1 SRD)": a <reference> monster
+    // (name, CR and source from its entry), or one written out with name, cr and src;
+    // display is the name the reader sees, when it isn't the stat block's.
+    InlineSpec {
+        tag: "monster",
+        label: "Inline monster",
+        attrs: &[("ref", Field::Ref(&["monster"]), false), ("display", Field::Text, false), ("name", Field::Text, false), ("cr", Field::Pick(CRS), false), ("src", Field::Text, false), EMPH],
+        text: None,
+    },
     InlineSpec { tag: "condition", label: "Condition", attrs: &[], text: Some(Field::Pick(CONDITIONS)) },
     InlineSpec { tag: "savingthrow", label: "Saving throw", attrs: &[("stat", Field::Pick(STATS), true), ("dc", Field::Text, true)], text: None },
     InlineSpec { tag: "skillcheck", label: "Ability check", attrs: &[("stat", Field::Pick(STATS), true), ("skill", Field::Pick(SKILLS), true), ("dc", Field::Int, false), ("table", Field::Bool, false)], text: None },

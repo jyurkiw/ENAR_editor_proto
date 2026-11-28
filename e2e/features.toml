@@ -40,6 +40,7 @@
 "Spelling: suggestions and the project word list" = ["test_05_intro_prose.py::test_a_second_paragraph"]
 "Ctrl+K: entries, chapters, figures" = ["test_05_intro_prose.py::test_ctrl_k", "test_05_intro_prose.py::test_the_map_figure", "test_06_tollside.py::test_the_toll_table"]
 "Ctrl+K: other tags and their forms" = ["test_05_intro_prose.py::test_ctrl_k", "test_10_millward_and_wedge.py::test_the_weir"]
+"Ctrl+K: inline monster" = ["test_11_appendix_and_back_matter.py::test_appendix_stat_blocks"]
 "Ctrl+K: library picks add their entries" = ["test_10_millward_and_wedge.py::test_the_weir", "test_11_appendix_and_back_matter.py::test_appendix_stat_blocks"]
 "Prose: typing on through a tag; Escape keeps the caret" = ["test_prose.py::test_typing_on_through_a_tag", "test_prose.py::test_escape_puts_the_caret_back"]
 "Reference form: Escape closes + Add" = ["test_prose.py::test_escape_closes_the_add_menu"]
