@@ -24,7 +24,7 @@
 "Revert and the unapplied mark" = ["test_applies.py::test_revert_and_the_unapplied_mark", "test_applies.py::test_a_refused_apply_leaves_the_file_alone"]
 "A refused apply leaves the file alone" = ["test_applies.py::test_a_refused_apply_leaves_the_file_alone"]
 "Source view: re-indented, highlighted, follows the selection" = ["test_applies.py::test_the_source_view"]
-"Source view: what Apply would write" = ["test_applies.py::test_source_shows_what_apply_would_write"]
+"Source view: what Apply would write" = ["test_applies.py::test_source_shows_what_apply_would_write", "test_applies.py::test_source_shows_card_drafts"]
 "Section rows: add menus sit in their rows" = ["test_applies.py::test_add_menus_sit_in_their_rows"]
 "Tree: down to sections, not what their forms edit" = ["test_files_and_tabs.py::test_the_tree_stops_at_sections"]
 "Tree: Expand all and Collapse all" = ["test_applies.py::test_the_source_view"]

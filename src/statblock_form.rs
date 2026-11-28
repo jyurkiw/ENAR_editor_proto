@@ -36,6 +36,20 @@ fn key(child: usize, path: &[usize], scope: Option<&[String]>) -> String {
     format!("sb:{child}:{}:{}", p.join("."), scope.map(|s| s.join(",")).unwrap_or_default())
 }
 
+/// The change a card's draft (its key and its element as JSON) would apply, for the Source
+/// view's "after Apply" text. The card's own tidy-up (dropping empty containers) isn't
+/// run, which only matters to what's written, not to what's shown.
+pub fn draft_change(key: &str, text: &str) -> Option<Change> {
+    let rest = key.strip_prefix("sb:")?;
+    let mut parts = rest.splitn(3, ':');
+    let child = parts.next()?.parse::<usize>().ok()?;
+    let _path = parts.next()?;
+    let scope = parts.next()?;
+    let el: El = serde_json::from_str(text).ok()?;
+    let scope = (!scope.is_empty()).then(|| scope.split(',').map(String::from).collect());
+    Some(Change::Stat { edit: StatEdit::Update { child, el, scope } })
+}
+
 /// The draft an edit was made from, so apply can drop it or mark it refused.
 pub fn draft_key(e: &StatEdit) -> Option<String> {
     match e {

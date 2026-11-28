@@ -286,7 +286,9 @@ the map's kind and the blank line; step 04's chapter move; step 05's chips, focu
 pills; step 06's footer, spans and deleted cells; step 07's cutline and typed cells; and
 `edges/test_prose.py`). Fixing them also turned up and fixed a regression: drag markers
 reset each row's `class:` toggles, which the section form's old rebuild-on-every-apply had
-hidden. Later on the branch, #7 and #16 were fixed too. The editor also gained two things
+hidden. Later on the branch, #7 and #16 were fixed too. The Source view shows what Apply
+would write for every form, the stat block, item, spell, family and license cards included.
+The editor also gained two things
 the last pending feature needed:
 - **It notices a file changed on disk**, on focus and every two seconds. A tab with
   nothing unapplied reads the file again and says when the selected element is gone. A

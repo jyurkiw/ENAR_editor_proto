@@ -148,9 +148,9 @@ fn form_kind(d: &DocData, idx: usize) -> Option<FormKind> {
     }
 }
 
-/// The tab's unapplied text edits as the changes their forms would apply: paragraphs and
-/// section headers, table info, headers and cells, list items, box text, reference cards.
-/// (Stat block, item and family cards hold whole-element models, and aren't included.)
+/// The tab's unapplied edits as the changes their forms would apply: paragraphs and
+/// section headers, table info, headers and cells, list items, box text, reference cards,
+/// and the stat block, item, spell, section block, license and family cards.
 fn text_drafts(tab: DocTab) -> Vec<Change> {
     use shared::block::BlockEdit;
     use shared::boxes::BoxEdit;
@@ -173,6 +173,16 @@ fn text_drafts(tab: DocTab) -> Vec<Change> {
             },
         }))
     });
+    // Stat block, item, spell, section block and license cards ("sb:" keys), and the
+    // family form's drafts. One that no longer fits the file fails to plan, and is skipped.
+    let d = tab.doc_untracked();
+    let tag_of = |i: usize| d.nodes.first().and_then(|r| r.children.get(i)).map(|c| d.nodes[*c].tag.clone());
+    tab.fam_drafts.with(|f| {
+        for (key, (_, text)) in f {
+            let c = if key.starts_with("sb:") { crate::statblock_form::draft_change(key, text) } else { crate::family_form::draft_change(key, text, tag_of) };
+            out.extend(c);
+        }
+    });
     tab.ref_drafts.with(|d| {
         out.extend(d.iter().map(|(key, entry)| {
             let edit = match key.split_once(':') {
@@ -183,6 +193,34 @@ fn text_drafts(tab: DocTab) -> Vec<Change> {
         }))
     });
     out
+}
+
+/// The selected element as the tab's drafts would leave it, if any of them apply.
+fn drafts_view(tab: DocTab, d: &DocData, selected: usize) -> Option<AnyView> {
+    let changes = text_drafts(tab);
+    let mut text = d.source.clone();
+    let mut planned = 0;
+    for c in &changes {
+        if let Ok(t) = c.plan(&text) {
+            text = t;
+            planned += 1;
+        }
+    }
+    if planned == 0 {
+        return None;
+    }
+    let key = d.key_of(selected);
+    Some(planned_view(
+        Ok(text),
+        move |_, nodes| {
+            let mut cur = 0;
+            for k in &key {
+                cur = *nodes.get(cur)?.children.get(*k)?;
+            }
+            Some(cur)
+        },
+        "Apply moves this element.",
+    ))
 }
 
 /// The re-indented text of the element `find` locates in `text`, highlighted.
@@ -302,36 +340,15 @@ fn TabView(tab: DocTab) -> impl IntoView {
                     );
                 }
             }
-            // Paragraphs, headers, tables, lists, boxes and reference cards: the text with
-            // every such draft in the tab applied.
-            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_)) => {
-                let changes = text_drafts(tab);
-                if !changes.is_empty() {
-                    let mut text = d.source.clone();
-                    let mut planned = 0;
-                    for c in &changes {
-                        if let Ok(t) = c.plan(&text) {
-                            text = t;
-                            planned += 1;
-                        }
-                    }
-                    if planned > 0 {
-                        let key = d.key_of(selected.get());
-                        return planned_view(
-                            Ok(text),
-                            move |_, nodes| {
-                                let mut cur = 0;
-                                for k in &key {
-                                    cur = *nodes.get(cur)?.children.get(*k)?;
-                                }
-                                Some(cur)
-                            },
-                            "Apply moves this element.",
-                        );
-                    }
+            // Every other form: the text with the tab's drafts applied (paragraphs, headers,
+            // tables, lists, boxes, reference cards, stat block, item and family cards).
+            Some(FormKind::Reference(_)) | Some(FormKind::Block(..)) | Some(FormKind::Table(_)) | Some(FormKind::List(_)) | Some(FormKind::Box(_))
+            | Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | Some(FormKind::SectionEl(_)) => {
+                if let Some(v) = drafts_view(tab, &d, selected.get()) {
+                    return v;
                 }
             }
-            Some(FormKind::Item) | Some(FormKind::Spell) | Some(FormKind::License) | Some(FormKind::Part(_)) | Some(FormKind::SectionEl(_)) | None => {}
+            None => {}
             Some(FormKind::Monster(path, tag)) => {
                 if let Some((_, xml)) = tab.raw_drafts.with(|m| m.get(&path).cloned()) {
                     let p2 = path.clone();
@@ -340,6 +357,9 @@ fn TabView(tab: DocTab) -> impl IntoView {
                         move |_, nodes| shared::element::at_path(nodes, &p2),
                         "Apply moves this element.",
                     );
+                }
+                if let Some(v) = drafts_view(tab, &d, selected.get()) {
+                    return v;
                 }
             }
         }
