@@ -257,9 +257,9 @@ When someone adds a new edit variant without a test, the suite fails and names i
 5. **Steps 10–12**, the golden files and the compiler build.
 6. **The coverage check**, then fill whatever it reports as missing.
 7. **The secondary suite**.
-8. **CI**, if you want it: a `windows-latest` runner has a desktop session, so WebView2
-   runs. The build step needs TeX Live plus the dndbook class, which is the slow part.
-   Until then the suite runs locally: `uv run --project e2e pytest e2e`.
+8. **CI**: done, in `.github/workflows/ci.yml` (see Where it stands). A `windows-latest`
+   runner has a desktop session, so WebView2 runs. TeX Live and the dndbook class are the
+   slow part, and they're cached.
 
 **Where it stands:** 1–7 are done. A full run (`uv run pytest --no-build`) is 106 tests in
 about 2 min 15 s: the story (steps 01–12, golden comparison and PDF build), the secondary
