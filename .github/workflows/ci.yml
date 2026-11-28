@@ -1,0 +1,134 @@
+# CI: the Rust tests on every push, and the Playwright end-to-end suite (e2e/) when the
+# data repo can be checked out.
+#
+# The e2e suite drives the real editor against an enigma-narrative checkout (its schemas,
+# compiler and SRD files), which is a private repository. Give the workflow read access with
+# a repository secret named ENIGMA_DATA_TOKEN: a fine-grained personal access token with
+# Contents: Read-only on jyurkiw/enigma_narrative. Without it the e2e job says so and stops;
+# the Rust job runs either way.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # tauri::generate_context! reads frontendDist (../dist) at compile time; the tests don't
+      # need the real UI build, only a folder with a page in it.
+      - name: Stand-in frontend
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Set-Content dist/index.html '<!doctype html><title>stand-in</title>'
+      - run: cargo test -p shared -p enigma-editor
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      HAS_DATA: ${{ secrets.ENIGMA_DATA_TOKEN != '' }}
+      DATA_REPO: ${{ github.workspace }}\enigma-narrative
+    steps:
+      - name: No data repo access
+        if: env.HAS_DATA != 'true'
+        run: echo "::notice title=e2e skipped::Add a repository secret ENIGMA_DATA_TOKEN (read access to jyurkiw/enigma_narrative) to run the end-to-end suite."
+
+      - uses: actions/checkout@v4
+        if: env.HAS_DATA == 'true'
+        with:
+          path: proto_ui
+      - uses: actions/checkout@v4
+        if: env.HAS_DATA == 'true'
+        with:
+          repository: jyurkiw/enigma_narrative
+          token: ${{ secrets.ENIGMA_DATA_TOKEN }}
+          path: enigma-narrative
+
+      # The editor: Rust with the wasm target, trunk (the UI) and the Tauri CLI, at the
+      # versions the suite was written against.
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.HAS_DATA == 'true'
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        if: env.HAS_DATA == 'true'
+        with:
+          workspaces: proto_ui -> target
+          cache-directories: proto_ui/target/e2e
+      - uses: taiki-e/install-action@v2
+        if: env.HAS_DATA == 'true'
+        with:
+          tool: trunk@0.21.14,tauri-cli@2.12.4
+
+      # uv runs the suite, the editor's validator and the compiler.
+      - uses: astral-sh/setup-uv@v6
+        if: env.HAS_DATA == 'true'
+
+      # TeX Live with what the dndbook class and the compiler's documents load (the class's
+      # own packages.txt, plus hyperref and the floats, fonts and drawing packages the
+      # compiler adds), for the stat block preview and the PDF build in story step 12.
+      - uses: teatimeguest/setup-texlive-action@v3
+        if: env.HAS_DATA == 'true'
+        with:
+          cache: true
+          packages: |
+            scheme-basic
+            collection-latex
+            collection-latexrecommended
+            collection-latexextra
+            collection-fontsrecommended
+            collection-pictures
+            amsfonts
+            babel-english
+            bookman
+            cfr-initials
+            contour
+            fontaxes
+            gillius
+            initials
+            kpfonts
+            lettrine
+            minifp
+            numprint
+            psnfss
+      - name: The dndbook class
+        if: env.HAS_DATA == 'true'
+        shell: pwsh
+        run: |
+          $home_tree = (kpsewhich -var-value TEXMFHOME).Trim()
+          git clone --depth 1 https://github.com/rpgtex/DND-5e-LaTeX-Template "$home_tree/tex/latex/dnd"
+          $found = kpsewhich dndbook.cls
+          if (-not $found) { throw "dndbook.cls isn't on TeX's path (TEXMFHOME is $home_tree)" }
+          Write-Output "dndbook.cls: $found"
+
+      - name: Run the suite
+        if: env.HAS_DATA == 'true'
+        working-directory: proto_ui/e2e
+        env:
+          PYTHONIOENCODING: utf-8
+        run: uv run pytest --data-repo "${{ env.DATA_REPO }}" -q -rs
+
+      - name: Keep the run folder (app log, change log, snapshots, PDF)
+        if: always() && env.HAS_DATA == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-run
+          path: |
+            proto_ui/e2e/out/*/
+            !proto_ui/e2e/out/*/webview/
+          if-no-files-found: ignore
+          retention-days: 14

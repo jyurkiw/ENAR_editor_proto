@@ -264,8 +264,12 @@ When someone adds a new edit variant without a test, the suite fails and names i
 **Where it stands:** 1–7 are done. A full run (`uv run pytest --no-build`) is 106 tests in
 about 2 min 15 s: the story (steps 01–12, golden comparison and PDF build), the secondary
 suite (`edges/`, 26 tests) and the coverage check (`coverage/`). Every edit variant,
-section block kind and listed UI feature is used, and none is pending. CI (8) isn't set
-up.
+section block kind and listed UI feature is used, and none is pending.
+
+CI (8) is `.github/workflows/ci.yml`. The Rust tests run on every push. The e2e job runs
+the whole suite on `windows-latest`, with TeX Live and the dndbook class installed. It
+needs the private data repo, so it waits for a repository secret, `ENIGMA_DATA_TOKEN`
+(read access to jyurkiw/enigma_narrative). Until there is one, it says so and stops.
 
 Two things differ from the plan above. The coverage check reads the edit variants from
 `shared/src` with a regex instead of a `cargo run` binary. And features map to the tests
