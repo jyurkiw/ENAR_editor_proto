@@ -274,8 +274,10 @@ button.small { font-size: 11px; padding: 1px 8px; }
 .ref-editor { padding: 12px 20px 40px; max-width: 980px; }
 .ref-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 6px 0 10px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
 .add-wrap { position: relative; }
-.add-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 420px; }
-.add-menu button { display: flex; gap: 10px; align-items: baseline; }
+/* The reference form's "+ Add ▾" dropdown. Only the menu div: the sections' and monster
+   entries' <select class="add-menu"> sit inline in their bars. */
+.menu.add-menu { position: absolute; top: calc(100% + 4px); left: 0; min-width: 420px; }
+.menu.add-menu button { display: flex; gap: 10px; align-items: baseline; }
 .menu-desc { color: var(--muted); font-size: 12px; }
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .chip { font-size: 12px; padding: 1px 10px; border-radius: 12px; }

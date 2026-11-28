@@ -178,3 +178,20 @@ def test_cancel_keeps_it(edge, app, rel, find):
     ui.page.wait_for_timeout(300)
     assert len(app.changes()) == n
     assert (ui.root / rel).read_bytes() == before
+
+
+def test_add_menus_sit_in_their_rows(edge):
+    """Each "+ other below…" select is drawn inside its own row (or the tools bar), not
+    over the next row's grip and text box: a dropdown rule for the reference form's menu
+    once positioned them all absolutely."""
+    ui = edge
+    ui.open(SUPP)
+    ui.select('section', label='intro-opening')
+    out = ui.body.locator('select.add-menu').evaluate_all("""sels => sels.map(s => {
+        const row = s.closest('.body-block, .body-tools');
+        const a = s.getBoundingClientRect(), b = row.getBoundingClientRect();
+        const inside = a.top >= b.top - 1 && a.bottom <= b.bottom + 1 && a.left >= b.left - 1 && a.right <= b.right + 1;
+        return inside ? null : `${row.className}: select ${Math.round(a.top)}-${Math.round(a.bottom)}, row ${Math.round(b.top)}-${Math.round(b.bottom)}`;
+    }).filter(x => x)""")
+    assert ui.body.locator('select.add-menu').count() > 3
+    assert out == [], out
