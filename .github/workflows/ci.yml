@@ -81,7 +81,7 @@ jobs:
       # TeX Live with what the dndbook class and the compiler's documents load (the class's
       # own packages.txt, plus hyperref and the floats, fonts and drawing packages the
       # compiler adds), for the stat block preview and the PDF build in story step 12.
-      - uses: teatimeguest/setup-texlive-action@v3
+      - uses: TeX-Live/setup-texlive-action@v4
         if: env.HAS_DATA == 'true'
         with:
           cache: true
