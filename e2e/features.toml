@@ -26,6 +26,7 @@
 "Source view: re-indented, highlighted, follows the selection" = ["test_applies.py::test_the_source_view"]
 "Source view: what Apply would write" = ["test_applies.py::test_source_shows_what_apply_would_write"]
 "Section rows: add menus sit in their rows" = ["test_applies.py::test_add_menus_sit_in_their_rows"]
+"Tree: down to sections, not what their forms edit" = ["test_files_and_tabs.py::test_the_tree_stops_at_sections"]
 "Tree: Expand all and Collapse all" = ["test_applies.py::test_the_source_view"]
 "Cover form, logos and rough preview" = ["test_03_cover.py::test_fill_in_the_cover"]
 "Reference form: add, edit, drag, delete" = ["test_03_cover.py::test_images_in_the_reference_block", "test_11_appendix_and_back_matter.py::test_reference_reorder_and_delete"]

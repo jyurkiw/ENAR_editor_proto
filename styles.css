@@ -105,6 +105,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); pa
 .row.element .label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .row.selected, .row.selected:hover { background: var(--select); }
 .row.selected .label { color: var(--text); }
+/* A row whose hidden descendant is selected (a paragraph, a list: edited in this row's form). */
+.row.holds-selected { box-shadow: inset 3px 0 0 var(--accent); }
 
 .empty { padding: 20px; color: var(--muted); }
 

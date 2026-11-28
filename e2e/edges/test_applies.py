@@ -116,7 +116,8 @@ def _para(ui):
 
 def _list(ui):
     ui.open(SUPP)
-    ui.select('list')
+    ui.select('section', name='three-pieces')      # lists aren't in the tree: open it from its section
+    ui.body.locator('.body-block', has=ui.page.locator('.ro-tag', has_text='List')).get_by_role('button', name='Open').click()
     return ui.body.get_by_role('button', name='Delete list')
 
 

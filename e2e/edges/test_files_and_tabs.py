@@ -84,10 +84,10 @@ def test_each_tab_keeps_its_selection(edge):
     ui.open(PIKE)
     ui.select('lair')
     ui.tab(SUPP).click()
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'section')
+    expect(ui.current()).to_have_attribute('data-tag', 'section')
     expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-label', re.compile('weir$'))
     ui.tab(PIKE).click()
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'lair')
+    expect(ui.current()).to_have_attribute('data-tag', 'lair')
 
 
 def test_closing_a_tab_with_unapplied_edits(edge, app):
@@ -203,3 +203,41 @@ def test_a_change_on_disk_with_unapplied_edits(edge, app):
     expect(para.locator('.chip-box')).to_contain_text('A miller caught in the mill race')
     expect(para.locator('.chip-box')).not_to_contain_text('Typed before the file changed.')
     expect(para.locator('.state-badge')).to_have_count(0)
+
+
+def tree_tags(ui):
+    ui.side('File structure')
+    ui.page.locator('.tree-tools').get_by_role('button', name='Expand all').click()
+    return ui.page.locator('.tree .row.element').evaluate_all('rs => rs.map(r => r.dataset.tag)')
+
+
+def test_the_tree_stops_at_sections(edge):
+    """The tree lists what has a form of its own, and nothing those forms edit: no
+    paragraphs, titles, list items or cells."""
+    ui = edge
+    ui.open(SUPP)
+    tags = tree_tags(ui)
+    root = ui.xml(SUPP)
+    top = [k.tag for k in root]
+    chapter_kids = [k.tag for c in root.findall('chapter') for k in c if k.tag != 'chapterTitle']
+    assert tags == ['supplement'] + [t for c in root for t in [c.tag] + ([k.tag for k in c if k.tag != 'chapterTitle'] if c.tag == 'chapter' else [])], tags
+    assert set(tags) == {'supplement'} | set(top) | set(chapter_kids)
+    for hidden in ['p', 'title', 'chapterTitle', 'li', 'tr', 'td', 'headerTitle', 'ch', 'image', 'noun']:
+        assert hidden not in tags, hidden
+
+    # A list opened from its section: the section holds the selection; the crumb names it.
+    ui.select('section', name='three-pieces')
+    ui.body.locator('.body-block', has=ui.page.locator('.ro-tag', has_text='List')).get_by_role('button', name='Open').click()
+    expect(ui.current()).to_have_attribute('data-tag', 'list')
+    expect(ui.page.locator('.tree .row.holds-selected')).to_have_attribute('data-label', re.compile('three-pieces$'))
+    expect(ui.page.locator('.tree .row.selected')).to_have_count(0)
+
+    # A monster file: its stat blocks and family parts.
+    ui.open(PIKE)
+    tags = tree_tags(ui)
+    pike = ui.xml(PIKE)
+    assert tags == ['monsters'] + [k.tag for k in pike if k.tag not in ('name', 'shortNoun', 'brief', 'habitats')], tags
+
+    # An item file: one page edits it all.
+    ui.open('grand-forks/ferrymans-lantern.xml')
+    assert tree_tags(ui) == ['magicItem']

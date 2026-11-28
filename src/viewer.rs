@@ -265,7 +265,8 @@ fn TabView(tab: DocTab) -> impl IntoView {
                 let n = &d.nodes[i];
                 let current = i == idx;
                 let text = if n.label.is_empty() || n.leaf { n.tag.clone() } else { format!("{} ({})", n.tag, n.label) };
-                view! { <span class="crumb" class:current=current on:click=move |_| tab.reveal(i)>{text}</span> }
+                let tag = n.tag.clone();
+                view! { <span class="crumb" class:current=current data-tag=tag on:click=move |_| tab.reveal(i)>{text}</span> }
             })
             .collect_view()
     };

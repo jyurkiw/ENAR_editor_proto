@@ -222,7 +222,7 @@ def test_ctrl_k(ui):
 def test_read_aloud_box(ui):
     # After the first paragraph: the compiler wants a chapter to open with one.
     ui.applies(lambda: paras(ui).first.locator('select.add-menu').select_option('speakAloud'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'speakAloud')
+    expect(ui.current()).to_have_attribute('data-tag', 'speakAloud')
     # The first box is the trigger (what leads into it), then the box's paragraph.
     rows = ui.body.locator('.body-block')
     expect(rows).to_have_count(2)
@@ -239,7 +239,7 @@ def test_read_aloud_box(ui):
 def test_the_map_figure(ui):
     ui.select('section', label='intro-opening')
     ui.applies(lambda: blocks(ui).last.locator('select.add-menu').select_option('figure'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'figure')
+    expect(ui.current()).to_have_attribute('data-tag', 'figure')
     ui.field('Id', scope=ui.body).fill('fig-town-map')
     ui.field('Caption', scope=ui.body).fill('Grand Forks and the Sallow')
     ui.field('Image', scope=ui.body).select_option('img-map')
@@ -277,7 +277,7 @@ def test_a_numbered_list(ui):
     assert [p.text for p in sec(ui, 'three-pieces').findall('p')] == ['Each piece still keeps its own customs.', 'The town is really three towns:']
     row = paras(ui).nth(1)
     ui.applies(lambda: row.locator('select.add-menu').select_option('list'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'list')
+    expect(ui.current()).to_have_attribute('data-tag', 'list')
     items = ['Tollside, on the north bank, where the road arrives.', 'Millward, on the east fork.',
              'The Wedge, on the high ground between.']
     for i, text in enumerate(items):
@@ -315,7 +315,7 @@ def test_list_items_move_and_go(ui, app):
     ui.body.get_by_role('button', name='open it').click()
     lst = ui.body.locator('.body-block', has=ui.page.locator('.ro-tag', has_text='List'))
     ui.applies(lambda: lst.locator('select.add-menu').select_option('list'))
-    expect(ui.page.locator('.tree .row.selected')).to_have_attribute('data-tag', 'list')
+    expect(ui.current()).to_have_attribute('data-tag', 'list')
     assert len(sec(ui, 'three-pieces').findall('list')) == 2
     delete = ui.body.get_by_role('button', name='Delete list')
     app.answer_confirms(False)
