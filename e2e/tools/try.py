@@ -4,6 +4,7 @@ and `expect` in scope: for trying selectors while writing a step.
     uv run python tools/try.py snippet.py
     uv run python tools/try.py -c "ui.select('chapter', name='tollside')"
 """
+import os
 import sys
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from pages.ui import UI  # noqa: E402
 if __name__ == '__main__':
     code = sys.argv[2] if sys.argv[1] == '-c' else Path(sys.argv[1]).read_text(encoding='utf-8')
     port = int((harness.LIVE / 'port').read_text())
-    data_repo = Path('E:/Data/enigma-narrative')
+    data_repo = Path(os.environ.get('ENIGMA_DATA_REPO', 'E:/Data/enigma-narrative'))
     with sync_playwright() as pw:
         page = harness.app_page(pw.chromium.connect_over_cdp(f'http://127.0.0.1:{port}'))
         app = harness.App(page, harness.LIVE, project_path(data_repo), data_repo)

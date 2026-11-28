@@ -49,6 +49,19 @@ uv run pytest edges --no-build         # just the edge cases, on the newest stor
 The build in step 12 runs the compiler the way the app does, with `uv run` in the app's own
 Python environment (`%LOCALAPPDATA%\com.enigmanarrative.editor\venv`).
 
+## CI
+
+`.github/workflows/ci.yml` runs `cargo test` on every push, and this suite on
+`windows-latest` (which has WebView2):
+- **The editor's tools:** Rust with the wasm target, trunk, the Tauri CLI and uv.
+- **TeX:** TeX Live, with the dndbook class cloned into `TEXMFHOME`.
+- **The run:** `uv run pytest --data-repo <checkout>`. Each run's folder is kept as an
+  artifact: the app log, change log, snapshots and the PDF.
+
+The data repo is private, so the job needs a repository secret, `ENIGMA_DATA_TOKEN`. Make
+it a fine-grained token with *Contents: Read-only* on `jyurkiw/enigma_narrative`. Without
+the secret, the job leaves a notice and stops.
+
 ## Writing tests
 
 The primary suite is `story/`: ordered steps (`test_01_project.py`, `test_02_new_files.py`

@@ -82,6 +82,12 @@ pub fn skeleton(kind: &str, title: &str, schema_location: &str) -> String {
     )
 }
 
+/// The schema file in `schemas_dir`, its folder canonicalized as the new file's folder is
+/// (8.3 short names, junctions), so the relative path between them comes out right.
+fn schema_file(schemas_dir: &str, name: &str) -> std::path::PathBuf {
+    dunce::canonicalize(schemas_dir).unwrap_or_else(|_| Path::new(schemas_dir).to_path_buf()).join(name)
+}
+
 /// Creates `parent/folder/` and its adventure.xml or supplement.xml. Returns the file's path.
 /// `parent` must be the project root or a folder inside it.
 pub fn create_supplement(req: &NewSupplement, project_root: &str, schemas_dir: &str) -> Result<String, AppError> {
@@ -103,7 +109,7 @@ pub fn create_supplement(req: &NewSupplement, project_root: &str, schemas_dir: &
     if dir.exists() {
         return Err(AppError::new(format!("{} already exists", dir.display())));
     }
-    let schema = Path::new(schemas_dir).join(SUPPLEMENT_SCHEMA);
+    let schema = schema_file(schemas_dir, SUPPLEMENT_SCHEMA);
     let loc = pathdiff::diff_paths(&schema, &dir)
         .map(|p| path_str(&p).replace('\\', "/"))
         .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
@@ -134,7 +140,7 @@ pub fn create_monster_file(req: &NewMonsterFile, project_root: &str, schemas_dir
     if file.exists() {
         return Err(AppError::new(format!("{} already exists", file.display())));
     }
-    let schema = Path::new(schemas_dir).join(MONSTER_SCHEMA);
+    let schema = schema_file(schemas_dir, MONSTER_SCHEMA);
     let loc = pathdiff::diff_paths(&schema, &parent)
         .map(|p| path_str(&p).replace('\\', "/"))
         .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
@@ -169,7 +175,7 @@ pub fn create_magic_item_file(req: &NewMagicItem, project_root: &str, schemas_di
     if file.exists() {
         return Err(AppError::new(format!("{} already exists", file.display())));
     }
-    let schema = Path::new(schemas_dir).join(MAGIC_ITEM_SCHEMA);
+    let schema = schema_file(schemas_dir, MAGIC_ITEM_SCHEMA);
     let loc = pathdiff::diff_paths(&schema, &parent)
         .map(|p| path_str(&p).replace('\\', "/"))
         .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
@@ -204,7 +210,7 @@ pub fn create_spell_file(req: &NewSpell, project_root: &str, schemas_dir: &str) 
     if file.exists() {
         return Err(AppError::new(format!("{} already exists", file.display())));
     }
-    let schema = Path::new(schemas_dir).join(SPELL_SCHEMA);
+    let schema = schema_file(schemas_dir, SPELL_SCHEMA);
     let loc = pathdiff::diff_paths(&schema, &parent)
         .map(|p| path_str(&p).replace('\\', "/"))
         .unwrap_or_else(|| path_str(&schema).replace('\\', "/"));
