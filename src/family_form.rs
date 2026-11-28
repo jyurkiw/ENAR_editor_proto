@@ -36,6 +36,41 @@ pub(crate) fn json<T: Serialize>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_default()
 }
 
+/// The change a family draft (key and text, as [`Draft`] keeps them) would apply, for the
+/// Source view's "after Apply" text. `tag_of` names the root's child at an index.
+pub fn draft_change(key: &str, text: &str, tag_of: impl Fn(usize) -> Option<String>) -> Option<Change> {
+    let mut parts = key.split(':');
+    let kind = parts.next()?;
+    let mut num = || parts.next().and_then(|n| n.parse::<usize>().ok());
+    let edit = if kind == "header" {
+        FamilyEdit::Header { model: serde_json::from_str(text).ok()? }
+    } else {
+        let child = num()?;
+        let at = PartAt { child, tag: tag_of(child)? };
+        match kind {
+            "p" => FamilyEdit::SetPara { at, n: num()?, text: text.to_string() },
+            "id" => FamilyEdit::SetId { at, id: text.to_string() },
+            "attr" => FamilyEdit::Attribution { at, name: text.to_string() },
+            "img" => FamilyEdit::Image { at, model: serde_json::from_str(text).ok()? },
+            "table" => {
+                let g: Grid = serde_json::from_str(text).ok()?;
+                FamilyEdit::Table { at, heads: g.heads, rows: g.rows }
+            }
+            "eff" => {
+                let n = num()?;
+                let e: shared::family::EffectView = serde_json::from_str(text).ok()?;
+                FamilyEdit::SetEffect { at, n, id: e.id, name: e.name, text: e.text }
+            }
+            "lair" => {
+                let f: LairFields = serde_json::from_str(text).ok()?;
+                FamilyEdit::Lair { at, name: f.name, end_verb: f.end_verb }
+            }
+            _ => return None,
+        }
+    };
+    Some(Change::Family { edit })
+}
+
 /// The draft an edit was made from (see [`Draft`]), so apply can drop it or mark it
 /// refused.
 pub fn draft_key(e: &FamilyEdit) -> Option<String> {

@@ -83,6 +83,36 @@ def test_source_shows_what_apply_would_write(edge):
     row.get_by_role('button', name='Revert').click()
 
 
+def test_source_shows_card_drafts(edge):
+    """The rest of issue 16: a stat block card's and a family part's unapplied edits show
+    in the Source view too."""
+    ui = edge
+    ui.open(PIKE)
+    ui.side('File structure')
+    ui.page.locator('.tree .row.element[data-tag="monster"]').first.click()
+    card = heading_card(ui)
+    ui.field('Armor Class', scope=card).fill('17')
+    ui.mode('Source')
+    expect(ui.viewer.locator('.source-note')).to_have_text('Showing the text after Apply (not yet written).')
+    expect(ui.viewer.locator('pre.code')).to_contain_text('<armorClass>17</armorClass>')
+    ui.mode('Form')
+    card.get_by_role('button', name='Revert').click()
+
+    # A family part: the image's alt text.
+    ui.side('File structure')
+    ui.page.locator('.tree .row.element[data-tag="image"]').first.click()
+    img = ui.body.locator('.table-card', has=ui.page.locator('.field-label', has_text='Alt text'))
+    ui.field('Alt text', scope=img).fill('A pike, not yet applied')
+    ui.mode('Source')
+    expect(ui.viewer.locator('.source-note')).to_have_text('Showing the text after Apply (not yet written).')
+    expect(ui.viewer.locator('pre.code')).to_contain_text('alt="A pike, not yet applied"')
+    ui.mode('Form')
+    img.get_by_role('button', name='Revert').click()
+    ui.mode('Source')
+    expect(ui.viewer.locator('.source-note')).to_have_count(0)
+    ui.mode('Form')
+
+
 def test_the_source_view(edge):
     ui = edge
     ui.open(SUPP)
